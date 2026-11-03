@@ -1,4 +1,4 @@
-[README (1).md](https://github.com/user-attachments/files/34304100/README.1.md)
+
 <div align="center">
 
 # 🪓 WorldEdit for Horizon
