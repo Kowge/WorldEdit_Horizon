@@ -1,4 +1,8 @@
 [README.1.md](https://github.com/user-attachments/files/34304671/README.1.md)
+markdown
+<p align="center">
+  <img src="logo.png" width="128px" alt="Логотип мода" />
+</p>
 <div align="center">
 
 # 🪓 WorldEdit for Horizon
