@@ -27,7 +27,7 @@
 
 ## 📦 Installation / Установка
 
-1. Download [worldedit-0.6.0.hnmod(https://github.com/Kowge/WorldEdit_Horizon/releases/tag/worldedit-0.6.0.hnmod)]. / Скачайте [worldedit-0.6.0.hnmod(https://github.com/Kowge/WorldEdit_Horizon/releases/tag/worldedit-0.6.0.hnmod)].
+1. Download [worldedit-0.6.0.hnmod](https://github.com/Kowge/WorldEdit_Horizon/releases/tag/worldedit-0.6.0.hnmod). / Скачайте [worldedit-0.6.0.hnmod](https://github.com/Kowge/WorldEdit_Horizon/releases/tag/worldedit-0.6.0.hnmod).
 2. Open the Horizon launcher → **Mods** → **Add mods** and pick the file. / Лаунчер Horizon → **Моды** → **Добавить моды** → выберите файл.
 3. Enable **Settings → Native mods (experimental)** and press **Build** (the first build takes a while). / Включите **Настройки → Нативные моды** и нажмите **Собрать** (первая сборка долгая).
 4. Launch the **Native mods** instance, enter a world and switch to creative: `/gamemode creative`. / Запустите сборку **Native mods**, войдите в мир и включите creative.
