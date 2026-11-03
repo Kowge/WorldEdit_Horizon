@@ -1,58 +1,7 @@
-<div align="center">
+# WorldEdit 0.6.0 — команды / Command reference
 
-# 🪓 WorldEdit for Horizon
-
-**A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
-**Мод в духе WorldEdit для клиента [Horizon](https://playhorizon.dev) — нативный мод (`.hnmod`)**
-
-![version](https://img.shields.io/badge/version-0.6.0-blue) ![game](https://img.shields.io/badge/Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v24-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange)
-
-</div>
-
----
-
-## ✨ Features / Возможности
-
-- 🪓 **Wooden axe wand** — left click = pos 1, right click = pos 2. Outside creative it is a normal axe. / **Топор-палочка**: ЛКМ — точка 1, ПКМ — точка 2. Вне creative это обычный топор.
-- 🎨 **Creative only** — every command works only in `/gamemode creative`. / **Только creative** — все команды работают только в `/gamemode creative`.
-- 🧱 **Fill, replace, walls, faces, hollow, overlay, naturalize, line** / заливка, замена, стены, грани, выдалбливание, слой сверху, натурализация, линия.
-- ⚪ **Shapes** — spheres, cylinders, pyramids, solid or hollow (`hcyl`, `hsphere`, `hpyramid`). / **Фигуры** — шары, цилиндры, пирамиды, сплошные и полые.
-- 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`. / **Рельеф и жидкости**.
-- 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move. / **Буфер обмена**.
-- ↩️ **Undo / redo** with configurable history. / **Отмена и возврат** с настраиваемой историей.
-- 🎲 **Patterns** — `stone`, `0` (air), `stone,dirt`, `30%stone,dirt`. / **Паттерны**.
-- 🔧 **In-game limits** — `/we limit` changes block, radius and history limits live. / **Лимиты** меняются прямо в игре.
-- 🔇 **No item drops** — edits do not pop torches/flowers (toggle with `/we physics`). / **Без выпадения предметов** (переключается `/we physics`).
-
-## 📦 Installation / Установка
-
-1. Download `worldedit-0.6.0.hnmod`. / Скачайте `worldedit-0.6.0.hnmod`.
-2. Open the Horizon launcher → **Mods** → **Add mods** and pick the file. / Лаунчер Horizon → **Моды** → **Добавить моды** → выберите файл.
-3. Enable **Settings → Native mods (experimental)** and press **Build** (the first build takes a while). / Включите **Настройки → Нативные моды** и нажмите **Собрать** (первая сборка долгая).
-4. Launch the **Native mods** instance, enter a world and switch to creative: `/gamemode creative`. / Запустите сборку **Native mods**, войдите в мир и включите creative.
-
-> ⚠️ Native mods are compiled into the game and have full access to your computer. Build only code you trust.
-> ⚠️ Нативные моды компилируются в игру и имеют полный доступ к компьютеру. Собирайте только код, которому доверяете.
-
-## 🚀 Quick start / Быстрый старт
-
-```text
-/gamemode creative
-/we wand                    # get the axe / получить топор
-(left click, right click)   # pick two corners / выбрать два угла
-/we set stone               # fill / залить камнем
-/we set 0                   # delete / удалить
-/we expand 5                # grow where you look / расширить туда, куда смотрите
-/we hcyl stone 5 3          # hollow cylinder r=5 h=3 / полый цилиндр
-/we undo                    # undo / отмена
-```
-
----
-
-# 📖 Commands / Команды
-
-All commands start with `/we`. They work only in creative mode (`/gamemode creative`).
 Все команды начинаются с `/we`. Работают только в режиме creative (`/gamemode creative`).
+All commands start with `/we`. They work only in creative mode (`/gamemode creative`).
 
 ## Выделение / Selection
 
@@ -155,27 +104,3 @@ EN: `drain` does not remove water inside waterlogged blocks (e.g. stairs). `smoo
 - **EN:** `stone` = one block; `0` = air; `stone,dirt` = even mix; `30%stone,dirt` = 30% stone, the rest dirt. The `minecraft:` prefix is optional.
 - **RU:** по умолчанию за одну команду не больше 500 000 блоков, радиус и размер фигур — до 128, история — 20 действий и сбрасывается при выходе из мира.
 - **EN:** by default at most 500,000 blocks per command, shape radius and size up to 128, history keeps 20 edits and resets when you leave the world.
-
----
-
-## ⚠️ Known limitations / Ограничения
-
-- Selection grid is not implemented (no line-drawing API in Horizon). / Сетка выделения не реализована (в Horizon нет API линий).
-- `regen`, `hpos1/hpos2`, brushes and schematics are not implemented. / Не реализованы `regen`, `hpos`, кисти и схематики.
-- `rotate` is named `/we rot` because vanilla already has `/rotate`. / Поворот буфера — `/we rot`, т. к. `/rotate` занят ванилью.
-- Block orientation (`facing`) is not rotated by `rot` / `flip`. / `rot` и `flip` не поворачивают ориентацию блоков.
-- Limits, physics mode and history are not saved between game launches. / Лимиты, режим физики и история не сохраняются между запусками.
-
-## 🛠 Building / Сборка
-
-Built as a Horizon native mod (mixin bundle). Logic lives in `we_core.rs` (pure Rust, unit-tested with `cargo test`), game glue in `glue.rs`.
-Нативный мод Horizon (mixin-бандл). Логика — в `we_core.rs` (чистый Rust, тесты `cargo test`), связка с игрой — в `glue.rs`.
-
-```bash
-python3 native/tools/native.py check worldedit     # check against Horizon source
-python3 native/tools/native.py package worldedit   # produce worldedit-<version>.hnmod
-```
-
-## 📄 License / Лицензия
-
-MIT
