@@ -1,0 +1,9 @@
+{
+  "game": "26.3",
+  "hooks": 24,
+  "horizon": "68ff4699847c591d3cb81f0af6b131a7e2239f3f",
+  "id": "worldedit_horizon",
+  "mixins": "0d6b103c70633d8fd9443d8d0acd3aadaacedb06",
+  "schema": 1,
+  "version": "0.6.0"
+}
