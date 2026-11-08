@@ -42,11 +42,13 @@ The brush belongs to the player alone: `/we brush` says which one is armed and `
 
 ## Schematics
 
-`/we schematic save <name>` writes the build of the current selection into a file of the world's own folder: `world/worldedit_horizon/schematics/<name>.wehs`, so the world's backups carry it along. The name holds letters, digits, `_` and `-` only (up to 48 characters), so it cannot leave that folder.
+`/we schematic save <name>` writes the build of the current selection into a file of the world's own folder: `world/worldedit_horizon/schematics/<name>.schematic`, so the world's backups carry it along. The name holds letters, digits, `_` and `-` only (up to 48 characters), so it cannot leave that folder.
 
 `/we schematic load <name>` reads the file back into the clipboard, and `/we paste` puts the build down: its lowest corner goes where the player stands. `/we schematic list` shows the saved builds with their size, `/we schematic delete <name>` removes one.
 
-The file holds the blocks of the build and the size of the box they were taken from, as the game's own block ids: a build is read with the same game and the same resource pack as it was saved with.
+The file holds the blocks of the build and the size of the box they were taken from, as the game's own block ids: a build is read with the same game and the same resource pack as it was saved with. The format is the mod's own, not WorldEdit's `.schematic`.
+
+Options > Horizon Settings > Mods lists the mod: its page has the button *Open the schematics folder*, which opens the folder in the system's file manager — the open world's own (`<world>/worldedit_horizon/schematics`), where the server keeps the schematics, or the mod's own folder in the instance when no world is open. The client asks the mods for their rows and buttons through the `native_mods`, `native_settings` and `native_settings_click` hooks (`mods_ui.rs`).
 
 ## Install
 
@@ -59,10 +61,12 @@ The file holds the blocks of the build and the size of the box they were taken f
 python3 tools/package.py      # -> target/worldedit_horizon-<version>.hnmod (Python 3.11+)
 ```
 
-Layout: `mixins/worldedit_horizon/` holds `horizon-mixin.toml`, the hook helpers and four modules
+Layout: `mixins/worldedit_horizon/` holds `horizon-mixin.toml`, the hook helpers and the modules
 (`we_core.rs`: the rules with no game types and their unit tests; `glue.rs`: the edges to the game's types;
 `geometry.rs`: the selection as the client draws it, without game types; `render.rs`: the client's half, the
-selection the server sent and the lines it is drawn with). `compatibility.json` pins the Horizon commit the mod was
+selection the server sent and the lines it is drawn with; `brush_client.rs`: the brush's clicks in the air;
+`mods_ui.rs`: the mod's row in Options > Mods and the button that opens the folder with the schematics).
+`compatibility.json` pins the Horizon commit the mod was
 tested on and the hook points version (`hooks`).
 
 The id must be the same in `[mod] id`, the folder name `mixins/<id>/`, the packaged manifest and the

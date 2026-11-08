@@ -1941,6 +1941,23 @@ const SCHEMATIC_FORMAT: u32 = 1;
 /// size of the box and the number of blocks.
 const SCHEMATIC_HEADER: usize = 24;
 
+/// The mod's own folder in the world's folder.
+pub const DATA_FOLDER: &str = "worldedit_horizon";
+/// The folder of the schematics in it.
+pub const SCHEMATICS_FOLDER: &str = "schematics";
+/// The extension of a schematic file.
+pub const SCHEMATIC_EXTENSION: &str = "schematic";
+
+/// The folder the schematics live in, under the world's own folder.
+pub fn schematic_dir(world: &std::path::Path) -> std::path::PathBuf {
+    world.join(DATA_FOLDER).join(SCHEMATICS_FOLDER)
+}
+
+/// The file of a schematic, with its extension.
+pub fn schematic_file(name: &str) -> String {
+    format!("{name}.{SCHEMATIC_EXTENSION}")
+}
+
 /// The name of a schematic: only the characters that cannot leave the
 /// schematics folder.
 pub fn schematic_name(name: &str) -> Result<String, String> {

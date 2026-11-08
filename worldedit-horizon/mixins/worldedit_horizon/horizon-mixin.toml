@@ -42,6 +42,14 @@ file = "crates/horizon-client/src/game.rs"
 name = "we_render"
 source = "render.rs"
 
+# The client's half: the mod's row in Options > Mods and the button that
+# opens the folder with the schematics.
+[[module]]
+id = "mods_ui"
+file = "crates/horizon-client/src/game.rs"
+name = "we_mods_ui"
+source = "mods_ui.rs"
+
 [[injection]]
 id = "register"
 kind = "HEAD"
@@ -153,4 +161,37 @@ helper = "gizmo_helper.rs"
 bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "gizmos", ty = "&mut crate::gizmos::Gizmos", value = "&mut *g" },
+]
+
+# Options > Mods lists the native mods: the mod's own row.
+[[injection]]
+id = "mods"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_mods"
+helper = "mods_helper.rs"
+bindings = [
+  { name = "mods", ty = "&mut Vec<crate::mod_api::NativeMod>", value = "&mut *mods" },
+]
+
+# The buttons of the mod's page in Options > Mods.
+[[injection]]
+id = "settings"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_settings"
+helper = "settings_helper.rs"
+bindings = [
+  { name = "mod_id", ty = "&str", value = "mod_id" },
+  { name = "buttons", ty = "&mut Vec<String>", value = "&mut *buttons" },
+]
+
+# A button of the mod's page was pressed: the folder with the schematics.
+[[injection]]
+id = "settings_click"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_settings_click"
+helper = "settings_click_helper.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "mod_id", ty = "&str", value = "mod_id" },
+  { name = "button", ty = "usize", value = "button" },
 ]

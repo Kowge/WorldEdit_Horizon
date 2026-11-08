@@ -1118,7 +1118,7 @@ fn schematic_dir(game: &Game<'_>) -> Result<PathBuf, String> {
     let root = game
         .world_dir()
         .ok_or_else(|| "No world is open.".to_owned())?;
-    Ok(root.join("worldedit_horizon").join("schematics"))
+    Ok(we_core::schematic_dir(&root))
 }
 
 /// `/we schematic save|load|list|delete`: the build of the selection, kept
@@ -1141,7 +1141,7 @@ fn schematic(
             };
             let blocks = build.blocks.len();
             fs::create_dir_all(&dir).map_err(|e| format!("The schematics folder cannot be made: {e}"))?;
-            let path = dir.join(format!("{name}.wehs"));
+            let path = dir.join(we_core::schematic_file(&name));
             let replaced = path.exists();
             fs::write(&path, build.encode()).map_err(|e| format!("The schematic cannot be written: {e}"))?;
             Ok(if replaced {
@@ -1152,7 +1152,7 @@ fn schematic(
         }
         Some("load") => {
             let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
-            let path = dir.join(format!("{name}.wehs"));
+            let path = dir.join(we_core::schematic_file(&name));
             let data = fs::read(&path)
                 .map_err(|_| format!("There is no schematic called `{name}`."))?;
             let build = we_core::Schematic::decode(&data)?;
@@ -1170,7 +1170,7 @@ fn schematic(
                     fs::read_dir(&dir).map_err(|e| format!("The schematics cannot be read: {e}"))?;
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str()) != Some("wehs") {
+                    if path.extension().and_then(|e| e.to_str()) != Some(we_core::SCHEMATIC_EXTENSION) {
                         continue;
                     }
                     let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
@@ -1195,7 +1195,7 @@ fn schematic(
         }
         Some("delete") => {
             let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
-            let path = dir.join(format!("{name}.wehs"));
+            let path = dir.join(we_core::schematic_file(&name));
             if !path.exists() {
                 return Err(format!("There is no schematic called `{name}`."));
             }
