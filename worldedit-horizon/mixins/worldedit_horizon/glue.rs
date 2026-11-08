@@ -51,6 +51,9 @@ fn write_flags() -> i32 {
 
 static SESSIONS: Mutex<Option<Sessions>> = Mutex::new(None);
 
+/// The sessions of every player. The lock is held while a command runs, so
+/// nothing inside a command may take it again: that would deadlock the
+/// server.
 fn with_sessions<R>(f: impl FnOnce(&mut Sessions) -> R) -> R {
     let mut guard = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
     f(guard.get_or_insert_with(Sessions::default))
@@ -399,7 +402,10 @@ fn brush_command(
         let Some(target) = brush_target(game, player, &brush, None) else {
             return Err("Look at a block first.".to_owned());
         };
-        let n = paint_brush(game, player, &brush, target, erase)?;
+        let edit = paint_brush(game, player, &brush, target, erase)?;
+        let n = edit.len();
+        // The command already holds the lock of the sessions.
+        session.record(edit);
         return Ok(format!(
             "{n} blocks {} at {target:?}.",
             if erase { "erased" } else { "painted" }
@@ -1047,7 +1053,9 @@ pub fn brush_click(game: &mut Game<'_>, pos: [i32; 3]) -> bool {
         return false;
     };
     match paint_brush(game, &player, &brush, target, false) {
-        Ok(n) => {
+        Ok(edit) => {
+            let n = edit.len();
+            with_sessions(|sessions| sessions.get(player.uuid).record(edit));
             game.native_action_bar(
                 player.uuid,
                 Text::literal(format!("Brush: {n} blocks painted.")),
@@ -1069,7 +1077,9 @@ fn brush_erase(
         return false;
     };
     match paint_brush(game, player, brush, target, true) {
-        Ok(n) => {
+        Ok(edit) => {
+            let n = edit.len();
+            with_sessions(|sessions| sessions.get(player.uuid).record(edit));
             game.native_action_bar(
                 player.uuid,
                 Text::literal(format!("Brush: {n} blocks erased.")),
@@ -1081,15 +1091,15 @@ fn brush_erase(
 }
 
 /// The brush on the block at `target`: with its pattern, or with air when it
-/// erases. The stroke is one edit, so `/we undo` takes it back. It says how
-/// many blocks changed.
+/// erases. It gives the edit back, so the caller can put it into the
+/// history: the history is behind a lock, and a command already holds it.
 fn paint_brush(
     game: &mut Game<'_>,
     player: &NativeServerPlayer,
     brush: &we_core::Brush,
     target: Pos,
     erase: bool,
-) -> Result<usize, String> {
+) -> Result<we_core::Edit, String> {
     let positions = brush
         .positions(target)
         .map_err(|why| format!("The brush does not fit: {why}"))?;
@@ -1104,9 +1114,7 @@ fn paint_brush(
         let mut w = GameWorld { game, dimension };
         we_core::fill(&mut w, &positions, &pattern)
     };
-    let n = edit.len();
-    with_sessions(|sessions| sessions.get(player.uuid).record(edit));
-    Ok(n)
+    Ok(edit)
 }
 
 /// Sets the corner `index` of the player's selection, tells them over the
