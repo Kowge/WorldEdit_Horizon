@@ -1144,6 +1144,18 @@ pub struct Ray {
     pub solid: bool,
 }
 
+impl Ray {
+    /// The block the ray met: the first one that is not air. None when it met
+    /// nothing.
+    pub fn hit(&self) -> Option<Pos> {
+        if self.solid {
+            self.blocks.last().copied()
+        } else {
+            None
+        }
+    }
+}
+
 /// The blocks a ray goes through from the eye along `dir`, up to `distance`
 /// blocks away. It stops at the first block that is not air, and that block is
 /// the last one. When it hits nothing, it goes on to the distance.
@@ -1351,44 +1363,6 @@ impl Brush {
         }
     }
 
-    /// How many blocks the brush's shape takes.
-    pub fn shape_volume(&self) -> u64 {
-        match self.shape {
-            Shape::Cube => {
-                let side = self.sizes[0] as u64;
-                side * side * side
-            }
-            Shape::Sphere => {
-                let r = self.sizes[0] as u64;
-                (2 * r + 1).pow(3)
-            }
-            Shape::Cylinder => {
-                let (radius, height) = (self.sizes[0] as u64, self.sizes[1] as u64);
-                (2 * radius + 1) * (2 * radius + 1) * height
-            }
-            Shape::Ellipsoid => {
-                let [rx, ry, rz] = self.sizes.map(|s| s as u64);
-                (2 * rx + 1) * (2 * ry + 1) * (2 * rz + 1)
-            }
-        }
-    }
-
-    /// The blocks the brush covers when it is dragged along `path`: its shape
-    /// on every block of the path.
-    pub fn stroke_positions(&self, path: &[Pos]) -> Result<Vec<Pos>, String> {
-        // The limit is checked before the blocks are built: a long path with a
-        // big brush must not cost a big allocation.
-        check_limit(path.len() as u64 * self.shape_volume())?;
-        let mut out = Vec::new();
-        for center in path {
-            out.extend(self.positions(*center)?);
-        }
-        // A block can be covered twice: once for every block of the path.
-        out.sort_unstable();
-        out.dedup();
-        Ok(out)
-    }
-
     /// The brush's radius: a sphere's and a cylinder's radius, a cube's half
     /// side, an ellipsoid's longest radius.
     pub fn radius(&self) -> i32 {
@@ -1456,7 +1430,7 @@ impl Brush {
         };
         let mut out = format!("{shape}, {}", self.text);
         if let Some(distance) = self.distance {
-            out.push_str(&format!(", {distance} blocks along the view"));
+            out.push_str(&format!(", {distance} blocks ahead"));
         }
         out
     }
@@ -2627,7 +2601,7 @@ mod tests {
         assert_eq!(b.distance, None);
         let far = b.with_distance(Some(20)).unwrap();
         assert_eq!(far.distance, Some(20));
-        assert!(far.describe().contains("20 blocks along the view"));
+        assert!(far.describe().contains("20 blocks ahead"));
         // The distance stays when the size changes.
         assert_eq!(far.with_radius(3).unwrap().distance, Some(20));
         // And it can be taken away again.
@@ -2683,25 +2657,6 @@ mod tests {
         let plain = ray_blocks(&w, [0.5, 64.5, 0.5], [0.0, 0.0, 1.0], 20.0, 0, &HashSet::new());
         assert!(plain.solid);
         assert_eq!(plain.blocks.last(), Some(&[0, 64, 13]));
-    }
-
-    #[test]
-    fn a_brush_dragged_along_a_line_covers_it() {
-        let b = Brush::parse("sphere 1 stone", &names).unwrap();
-        let path = vec![[0, 64, 0], [0, 64, 1], [0, 64, 2]];
-        let blocks = b.stroke_positions(&path).unwrap();
-        // Every block of the line is covered, and the shape around it.
-        for p in path {
-            assert!(blocks.contains(&p));
-        }
-        assert!(blocks.contains(&[0, 65, 1]));
-        // Far off the line it does not reach.
-        assert!(!blocks.contains(&[0, 64, 6]));
-        // And no block is covered twice.
-        let mut unique = blocks.clone();
-        unique.sort_unstable();
-        unique.dedup();
-        assert_eq!(blocks.len(), unique.len());
     }
 
     #[test]

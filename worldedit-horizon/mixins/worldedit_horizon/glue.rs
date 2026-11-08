@@ -219,7 +219,7 @@ pub fn commands(out: &mut Vec<NativeCommand>) {
 }
 
 const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 4): every command is /we <command>, as /we set stone. \
-wand | brush <shape> [sizes] <pattern> | brush radius <n> | brush distance <n> (the brush works along your view, to the first block and, in the sky, at that distance) | brush at | brush erase at (off) | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
+wand | brush <shape> [sizes] <pattern> | brush radius <n> | brush distance <n> (the brush works on the block you look at, and, where there is none, that far ahead) | brush at | brush erase at (off) | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
 expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
@@ -434,18 +434,17 @@ fn brush_command(
         let Some(brush) = session.brush.clone() else {
             return Err(NO_BRUSH.to_owned());
         };
-        let Some(path) = brush_path(game, player, &brush, None, &session.last_stroke) else {
+        let Some(target) = brush_target(game, player, &brush, None, &session.last_stroke) else {
             return Err("Look at a block first.".to_owned());
         };
-        let (edit, positions) = paint_brush(game, player, &brush, &path, erase)?;
+        let (edit, positions) = paint_brush(game, player, &brush, target, erase)?;
         let n = edit.len();
         // The command already holds the lock of the sessions.
         session.record(edit);
         // The brush remembers its work: it does not shoot at it.
         session.last_stroke = positions.into_iter().collect();
-        let at = path.last().copied().unwrap_or([0, 0, 0]);
         return Ok(format!(
-            "{n} blocks {} at {at:?}.",
+            "{n} blocks {} at {target:?}.",
             if erase { "erased" } else { "painted" }
         ));
     }
@@ -462,43 +461,40 @@ fn brush_command(
     Ok(line)
 }
 
-/// Where the brush works: the blocks along the line of sight, up to the first
-/// one that is not air.
+/// Where the brush works: the block it was used on, or the block the player
+/// looks at.
 ///
-/// With a distance, the brush works along the way the player looks: every
-/// block up to the first one that is not air. When the way is empty (the sky),
-/// the brush works at the distance instead. Without a distance, the brush works
-/// where it was used, or at the block under the view.
-fn brush_path(
+/// With a distance, the brush works on the first block along the way the
+/// player looks. When there is none (the sky), the brush works at the
+/// distance instead. Without a distance, the brush works where it was used.
+fn brush_target(
     game: &Game<'_>,
     player: &NativeServerPlayer,
     brush: &we_core::Brush,
     used: Option<Pos>,
     own: &HashSet<Pos>,
-) -> Option<Vec<Pos>> {
+) -> Option<Pos> {
     let Some(distance) = brush.distance else {
         // No distance: the brush works where it was used, or under the view.
         if let Some(pos) = used {
-            return Some(vec![pos]);
+            return Some(pos);
         }
-        return view_block(game, player, own).map(|pos| vec![pos]);
+        return view_block(game, player, own);
     };
     let eye = eyes(player);
     let dir = gaze(player);
     let air = block_id(game, "air").unwrap_or(0);
-    let ray = we_core::ray_blocks(&GameReader { game }, eye, dir, f64::from(distance), air, own);
-    if !ray.solid {
-        // The sky: the brush works at the distance.
-        return Some(vec![we_core::ahead(eye, dir, f64::from(distance))]);
+    // The first block along the view, up to 64 blocks away.
+    let ray = we_core::ray_blocks(&GameReader { game }, eye, dir, 64.0, air, own);
+    if let Some(hit) = ray.hit() {
+        // The blocks the player is in are not painted.
+        if own_blocks(player).contains(&hit) {
+            return None;
+        }
+        return Some(hit);
     }
-    // The blocks the player is in are not painted.
-    let own = own_blocks(player);
-    Some(
-        ray.blocks
-            .into_iter()
-            .filter(|pos| !own.contains(pos))
-            .collect(),
-    )
+    // The sky: the brush works at the distance.
+    Some(we_core::ahead(eye, dir, f64::from(distance)))
 }
 
 /// Where the brush works, with the blocks it covered last in mind: the brush
@@ -509,10 +505,10 @@ fn brush_way(
     player: &NativeServerPlayer,
     brush: &we_core::Brush,
     used: Option<Pos>,
-) -> Option<Vec<Pos>> {
+) -> Option<Pos> {
     with_sessions(|sessions| {
         let session = sessions.get(player.uuid);
-        brush_path(game, player, brush, used, &session.last_stroke)
+        brush_target(game, player, brush, used, &session.last_stroke)
     })
 }
 
@@ -521,11 +517,7 @@ fn brush_way(
 fn view_block(game: &Game<'_>, player: &NativeServerPlayer, own: &HashSet<Pos>) -> Option<Pos> {
     let air = block_id(game, "air").unwrap_or(0);
     let ray = we_core::ray_blocks(&GameReader { game }, eyes(player), gaze(player), 64.0, air, own);
-    if ray.solid {
-        ray.blocks.last().copied()
-    } else {
-        None
-    }
+    ray.hit()
 }
 
 fn run(
@@ -1124,10 +1116,10 @@ pub fn brush_click(game: &mut Game<'_>, pos: [i32; 3]) -> bool {
     let Some(brush) = with_sessions(|sessions| sessions.get(player.uuid).brush.clone()) else {
         return false;
     };
-    let Some(path) = brush_way(game, &player, &brush, Some(pos)) else {
+    let Some(target) = brush_way(game, &player, &brush, Some(pos)) else {
         return false;
     };
-    match paint_brush(game, &player, &brush, &path, false) {
+    match paint_brush(game, &player, &brush, target, false) {
         Ok((edit, positions)) => {
             let n = edit.len();
             with_sessions(|sessions| {
@@ -1153,10 +1145,10 @@ fn brush_erase(
     brush: &we_core::Brush,
     pos: [i32; 3],
 ) -> bool {
-    let Some(path) = brush_way(game, player, brush, Some(pos)) else {
+    let Some(target) = brush_way(game, player, brush, Some(pos)) else {
         return false;
     };
-    match paint_brush(game, player, brush, &path, true) {
+    match paint_brush(game, player, brush, target, true) {
         Ok((edit, positions)) => {
             let n = edit.len();
             with_sessions(|sessions| {
@@ -1189,10 +1181,10 @@ pub fn brush_stroke(game: &mut Game<'_>, player: &NativeServerPlayer, erase: boo
     if brush.distance.is_none() {
         return false;
     }
-    let Some(path) = brush_way(game, player, &brush, None) else {
+    let Some(target) = brush_way(game, player, &brush, None) else {
         return false;
     };
-    match paint_brush(game, player, &brush, &path, erase) {
+    match paint_brush(game, player, &brush, target, erase) {
         Ok((edit, positions)) => {
             let n = edit.len();
             with_sessions(|sessions| {
@@ -1237,7 +1229,7 @@ pub fn brush_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
     brush_stroke(game, &p, erase);
 }
 
-/// The brush on the blocks of `path`: with its pattern, or with air when it
+/// The brush on the block at `target`: with its pattern, or with air when it
 /// erases. It gives the edit and the blocks it covered back, so the caller
 /// can put the edit into the history and remember the blocks: the history is
 /// behind a lock, and a command already holds it.
@@ -1245,11 +1237,11 @@ fn paint_brush(
     game: &mut Game<'_>,
     player: &NativeServerPlayer,
     brush: &we_core::Brush,
-    path: &[Pos],
+    target: Pos,
     erase: bool,
 ) -> Result<(we_core::Edit, Vec<Pos>), String> {
     let positions = brush
-        .stroke_positions(path)
+        .positions(target)
         .map_err(|why| format!("The brush does not fit: {why}"))?;
     let pattern = if erase {
         let air = block_id(game, "air").unwrap_or(0);
