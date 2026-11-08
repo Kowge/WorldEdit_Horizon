@@ -13,7 +13,7 @@ Creative mode **and** operator permission only: every `/we` command and the wand
 
 Every command is under `/we`: `/we set stone`, `/we copy`, `/we undo`. The server cuts the slashes off a command line, so `//we set stone` runs the same command, but the game marks the double slash as an unknown name in the chat box — write it with one slash.
 
-- **Selection:** wooden axe wand (left click = first corner, right click = second), `wand`, `pos1`, `pos2`, `pos`, `hpos1`, `hpos2`, `sel`, `sel <shape> [sizes]`, `size`, `trim`, `distr`, `expand`/`contract`/`shift`/`outset`/`inset`, `chunk`
+- **Selection:** wooden axe wand (left click = first corner, right click = second), `wand`, `pos1`, `pos2`, `pos`, `hpos1`, `hpos2`, `sel`, `sel <shape> [sizes]`, `grid on|off`, `size`, `trim`, `distr`, `expand`/`contract`/`shift`/`outset`/`inset`, `chunk`
 - **Edit:** `set`, `replace`, `overlay`, `naturalize`, `walls`, `faces`, `hollow`, `line`, `count`, `smooth`, `fill`, `fillr`, `removeabove`, `removebelow`, `drain`, `fixwater`, `fixlava`
 - **Shapes:** `sphere`/`hsphere`, `cyl`/`hcyl`, `pyramid`/`hpyramid`
 - **Selection shapes:** `sel cube`, `sel sphere`, `sel cylinder`, `sel ellipsoid` — the selection becomes a box, a ball, a tube or an ellipsoid; with sizes the volume appears around the player at once, without them it follows the two corners
@@ -22,6 +22,12 @@ Every command is under `/we`: `/we set stone`, `/we copy`, `/we undo`. The serve
 - **History and limits:** `undo`, `redo`, `physics [on|off]`, `limit`
 
 Patterns: `stone`, `50%stone,dirt`. Directions: `north south east west up down`.
+
+## The selection is drawn on the client
+
+The selection is drawn where you look: a frame around the box of the selection and a grid inside it. Every cell of that grid is one block wide, whatever the size of the box. A round selection (`sel sphere`, `sel cylinder`, `sel ellipsoid`) is drawn as the blocks it covers, one square at a time, so the outline stands exactly on the blocks the command would change — the same look as Minecraft's block outline (F3+B). A shape with too many blocks to show one by one is drawn as its three sections through the middle, so its axes stay together. The lines are red: `#CCFF0000` for the frame and the blocks, `#CCAA0000` for the grid inside a box. The lines are the engine's own, drawn over everything, so the blocks do not hide the selection: it is visible through the terrain. The server sends the selection to the client over `horizon:mod_net` on every change, and the client draws it.
+
+`/we grid off` hides the grid inside the selection; the frame around it stays. The setting is yours alone: every player has their own, and it survives a new selection.
 
 ## Install
 
@@ -34,9 +40,11 @@ Patterns: `stone`, `50%stone,dirt`. Directions: `north south east west up down`.
 python3 tools/package.py      # -> target/worldedit_horizon-<version>.hnmod (Python 3.11+)
 ```
 
-Layout: `mixins/worldedit_horizon/` holds `horizon-mixin.toml`, the hook helpers and two modules
-(`we_core.rs`: rules with no game types and its unit tests; `glue.rs`: the edges to the game's types).
-`compatibility.json` pins the Horizon commit the mod was tested on and the hook points version (`hooks`).
+Layout: `mixins/worldedit_horizon/` holds `horizon-mixin.toml`, the hook helpers and four modules
+(`we_core.rs`: the rules with no game types and their unit tests; `glue.rs`: the edges to the game's types;
+`geometry.rs`: the selection as the client draws it, without game types; `render.rs`: the client's half, the
+selection the server sent and the lines it is drawn with). `compatibility.json` pins the Horizon commit the mod was
+tested on and the hook points version (`hooks`).
 
 The id must be the same in `[mod] id`, the folder name `mixins/<id>/`, the packaged manifest and the
 id typed in the submit form at playhorizon.dev/mods/submit.

@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "0.9.0";
+pub const VERSION: &str = "0.10.0";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
@@ -136,6 +136,7 @@ const USAGES: &[&str] = &[
     "we hpos1",
     "we hpos2",
     "we sel [args:text]",
+    "we grid [state:word]",
     "we desel",
     "we size",
     "we trim",
@@ -179,7 +180,7 @@ pub fn commands(out: &mut Vec<NativeCommand>) {
 }
 
 const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 4): every command is /we <command>, as /we set stone. \
-wand | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | size | trim | distr | chunk | chunkinfo | listchunks | \
+wand | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
 expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
@@ -212,7 +213,15 @@ pub fn perform(
     }
     let outcome = with_sessions(|sessions| {
         let session = sessions.get(player.uuid);
-        run(game, player, session, &args)
+        let before = we_core::selection_state(&session.selection);
+        let result = run(game, player, session, &args);
+        // The client draws the selection: it needs to hear about every change.
+        if before != we_core::selection_state(&session.selection) {
+            let payload = we_core::selection_payload(&session.selection);
+            let host: &mut dyn crate::mod_api::Host = game;
+            let _ = host.net_send_to_player(player.uuid, we_core::SEL_CHANNEL, &payload);
+        }
+        result
     });
     match outcome {
         Ok(line) => reply(game, line),
@@ -351,7 +360,14 @@ fn run(
                 None => origin,
             };
             session.selection.set_pos(index, &dimension, pos);
-            Ok(format!("Position {index} set to {pos:?}."))
+            let mut line = format!("Position {index} set to {pos:?}.");
+            // With both corners the selection is known: say what it is now,
+            // so that a shape the player chose is not left to guesswork.
+            if let Some(c) = session.selection.region() {
+                line.push(' ');
+                line.push_str(&describe(&c));
+            }
+            Ok(line)
         }
         "drain" | "fixwater" | "fixlava" => {
             let c = region(session, player)?;
@@ -520,6 +536,21 @@ fn run(
             let c = Region::around(shape, origin, &sizes)?;
             session.selection.set_region(&c);
             Ok(describe(&c))
+        }
+        "grid" => {
+            // The player's own view of the selection: the grid inside it can
+            // be turned off, the frame around it stays either way.
+            let on = match args.get(1).copied() {
+                Some("on") => true,
+                Some("off") => false,
+                Some(word) => return Err(format!("`{word}` is not on or off.")),
+                None => !session.selection.grid,
+            };
+            session.selection.grid = on;
+            Ok(format!(
+                "The grid inside the selection is {} for you.",
+                if on { "on" } else { "off" }
+            ))
         }
         "chunkinfo" => {
             let chunk = we_core::chunk_of(origin);
@@ -855,17 +886,80 @@ pub fn wand_click(game: &mut Game<'_>, index: u8, pos: [i32; 3]) -> bool {
     let Some(player) = wand_player(game) else {
         return false;
     };
-    let size = with_sessions(|sessions| {
-        let selection = &mut sessions.get(player.uuid).selection;
-        selection.set_pos(index, &player.dimension, pos);
-        selection.region().map(|c| c.volume())
+    set_corner(game, player.uuid, &player.dimension, index, pos);
+    true
+}
+
+/// Sets the corner `index` of the player's selection, tells them over the
+/// hotbar and sends the new selection to their client, which draws it.
+fn set_corner(game: &mut Game<'_>, player: u128, dimension: &str, index: u8, pos: [i32; 3]) {
+    let (size, payload) = with_sessions(|sessions| {
+        let selection = &mut sessions.get(player).selection;
+        selection.set_pos(index, dimension, pos);
+        let size = selection.region().map(|c| c.volume());
+        (size, we_core::selection_payload(selection))
     });
     let mut line = format!("Position {index} set to {pos:?}");
     if let Some(volume) = size {
         line.push_str(&format!(" ({volume} blocks)"));
     }
-    game.native_action_bar(player.uuid, Text::literal(line));
-    true
+    game.native_action_bar(player, Text::literal(line));
+    // The client draws the selection.
+    let host: &mut dyn crate::mod_api::Host = game;
+    let _ = host.net_send_to_player(player, we_core::SEL_CHANNEL, &payload);
+}
+
+/// A client tells the server that the wand was used on a block: the server
+/// owns the selection, so it sets the corner itself. A dedicated server
+/// never hears the click itself, only the client's message.
+pub fn wand_request(game: &mut Game<'_>, pos: [i32; 3]) {
+    // Only the wand asks.
+    let Some((item, _, _)) = game.native_held() else {
+        return;
+    };
+    if item != WAND {
+        return;
+    }
+    let host: &mut dyn crate::mod_api::Host = game;
+    let _ = host.net_send_to_server(we_core::WAND_CHANNEL, &we_core::wand_payload(pos));
+}
+
+/// The server got a wand's click from a client: it checks the player and
+/// sets the second corner.
+pub fn wand_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
+    let Some(pos) = we_core::parse_wand(data) else {
+        return;
+    };
+    let Some(p) = game.native_server_players().into_iter().find(|p| p.uuid == player) else {
+        return;
+    };
+    // Only an operator in creative mode may use WorldEdit.
+    if !we_core::permitted(p.permission, None) || p.game_mode != 1 {
+        return;
+    }
+    // The click must be within reach: a client may ask for any block.
+    if !within_reach(p.position, pos) {
+        return;
+    }
+    // The wand in the player's hand.
+    let host: &mut dyn crate::mod_api::Host = game;
+    let Some(stacks) = host.player_stacks(player) else {
+        return;
+    };
+    if !stacks.iter().flatten().take(9).any(|s| s.item.to_string() == WAND) {
+        return;
+    }
+    set_corner(game, player, &p.dimension, 2, pos);
+}
+
+/// Whether the block at `pos` is within the player's reach: six blocks, so
+/// a click at the far side of the block the player looks at counts too.
+fn within_reach(at: [f64; 3], pos: [i32; 3]) -> bool {
+    let d: f64 = (0..3)
+        .map(|i| at[i] - f64::from(pos[i]))
+        .map(|d| d * d)
+        .sum();
+    d <= 36.0
 }
 
 #[allow(dead_code)]

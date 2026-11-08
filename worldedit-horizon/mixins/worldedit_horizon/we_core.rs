@@ -702,20 +702,38 @@ pub fn chunk_filled<W: World>(
 }
 
 /// A player's two corners, in a dimension.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Selection {
     pub dimension: String,
     pub pos1: Option<Pos>,
     pub pos2: Option<Pos>,
     /// The shape of the selection: a plain box, or a round shape.
     pub shape: Shape,
+    /// The player's own view of it: whether the grid inside the selection is
+    /// drawn on the client. The frame around it stays either way.
+    pub grid: bool,
+}
+
+impl Default for Selection {
+    fn default() -> Self {
+        Selection {
+            dimension: String::new(),
+            pos1: None,
+            pos2: None,
+            shape: Shape::Cube,
+            grid: true,
+        }
+    }
 }
 
 impl Selection {
     pub fn set_pos(&mut self, index: u8, dimension: &str, pos: Pos) {
         if self.dimension != dimension {
+            // Another level: the corners go, the player's own view stays.
+            let grid = self.grid;
             *self = Selection {
                 dimension: dimension.to_owned(),
+                grid,
                 ..Selection::default()
             };
         }
@@ -771,6 +789,84 @@ impl Selection {
         self.pos2 = None;
         self.shape = Shape::Cube;
     }
+}
+
+/// The channel the selection travels to the client on (`mod_id:name`).
+pub const SEL_CHANNEL: &str = "worldedit_horizon:sel";
+
+/// The channel the wand's clicks travel to the server on (`mod_id:name`).
+pub const WAND_CHANNEL: &str = "worldedit_horizon:wand";
+
+/// A wand's click: the block it was made on, three little-endian coordinates.
+pub fn wand_payload(pos: Pos) -> Vec<u8> {
+    let mut out = Vec::with_capacity(12);
+    for v in pos {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out
+}
+
+/// The block a wand's click was made on. None when the message is broken.
+pub fn parse_wand(data: &[u8]) -> Option<Pos> {
+    if data.len() != 12 {
+        return None;
+    }
+    let mut pos = [0i32; 3];
+    for (i, v) in pos.iter_mut().enumerate() {
+        *v = i32::from_le_bytes(data.get(i * 4..i * 4 + 4)?.try_into().ok()?);
+    }
+    Some(pos)
+}
+
+/// The shape as a byte, so the client knows what it draws.
+fn shape_id(shape: Shape) -> u8 {
+    match shape {
+        Shape::Cube => 0,
+        Shape::Sphere => 1,
+        Shape::Cylinder => 2,
+        Shape::Ellipsoid => 3,
+    }
+}
+
+/// The selection as the client draws it: the kind, the flags, the shape, the
+/// dimension, the shape's middle and sizes and the box the blocks fill. The
+/// client reads it in its `geometry.rs`.
+pub fn selection_payload(selection: &Selection) -> Vec<u8> {
+    let Some(region) = selection.region() else {
+        // No selection: the client draws nothing.
+        return vec![0];
+    };
+    let dimension = selection.dimension.as_bytes();
+    let dimension = &dimension[..dimension.len().min(255)];
+    let mut out = Vec::with_capacity(4 + dimension.len() + 48);
+    out.push(1);
+    // The flags: the first bit says that the grid inside the selection is
+    // drawn.
+    out.push(u8::from(selection.grid));
+    out.push(shape_id(region.shape));
+    out.push(dimension.len() as u8);
+    out.extend_from_slice(dimension);
+    for v in region
+        .center
+        .iter()
+        .chain(region.sizes.iter())
+        .chain(region.min.iter())
+        .chain(region.max.iter())
+    {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out
+}
+
+/// The corners, the shape and the player's own view of the selection: the
+/// client's drawing changes when these change.
+pub fn selection_state(selection: &Selection) -> (Option<Pos>, Option<Pos>, Shape, bool) {
+    (
+        selection.pos1,
+        selection.pos2,
+        selection.shape,
+        selection.grid,
+    )
 }
 
 /// A command that would touch more than `MAX_BLOCKS` is refused.
@@ -1151,7 +1247,6 @@ pub fn fill_hole<W: World>(
         return Err("The depth is at least 1.".to_owned());
     }
     let r = radius as f64 + 0.5;
-    let bottom = center[1] - depth + 1;
     let mut writes = Vec::new();
     if recursive {
         // The whole air of the ball, down to the bottom of the hole.

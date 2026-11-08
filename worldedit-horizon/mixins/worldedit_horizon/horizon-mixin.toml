@@ -1,10 +1,10 @@
 [mod]
 id = "worldedit_horizon"
-version = "0.9.0"
+version = "0.10.1"
 priority = 100
 
 # The commit of horizon main it was tested on. It uses only the native hook
-# points (hooks 24 in compatibility.json): it builds on any Horizon that has them.
+# points (hooks 58 in compatibility.json): it builds on any Horizon that has them.
 [compatibility]
 horizon_revision = "68ff4699847c591d3cb81f0af6b131a7e2239f3f"
 
@@ -19,6 +19,21 @@ id = "glue"
 file = "crates/horizon-client/src/game.rs"
 name = "we_glue"
 source = "glue.rs"
+
+# The client's half: the selection as it is drawn, without the game types.
+[[module]]
+id = "geometry"
+file = "crates/horizon-client/src/game.rs"
+name = "we_geometry"
+source = "geometry.rs"
+
+# The client's half: the selection the server sent and the lines it is drawn
+# with.
+[[module]]
+id = "render"
+file = "crates/horizon-client/src/game.rs"
+name = "we_render"
+source = "render.rs"
 
 [[injection]]
 id = "register"
@@ -70,4 +85,39 @@ target = "horizon_client::game::native_hooks::Game<'_>::native_world_lifecycle"
 helper = "lifecycle.rs"
 bindings = [
   { name = "phase", ty = "crate::game::native_lifecycle::WorldPhase", value = "phase" },
+]
+
+# The client's half: the selection the server sent.
+[[injection]]
+id = "selection"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_net_from_server"
+helper = "net_helper.rs"
+bindings = [
+  { name = "channel", ty = "&str", value = "channel" },
+  { name = "data", ty = "&[u8]", value = "data" },
+]
+
+# The wand's click, which a dedicated server only hears from the client.
+[[injection]]
+id = "wand"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_net_from_client"
+helper = "net_client_helper.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "player", ty = "u128", value = "player" },
+  { name = "channel", ty = "&str", value = "channel" },
+  { name = "data", ty = "&[u8]", value = "data" },
+]
+
+# The lines of the selection, over everything: the blocks do not hide them.
+[[injection]]
+id = "selection-on-top"
+kind = "HEAD"
+target = "horizon_client::game::debug_renderers::Game<'_>::debug_renderer_gizmos"
+helper = "gizmo_helper.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "gizmos", ty = "&mut crate::gizmos::Gizmos", value = "&mut *g" },
 ]

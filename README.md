@@ -8,10 +8,7 @@
 **A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
 **Мод в духе WorldEdit для клиента [Horizon](https://playhorizon.dev) — нативный мод (`.hnmod`)**
 
-<<<<<<< HEAD
-=======
-![version](https://img.shields.io/badge/version-0.9.0-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v24-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
->>>>>>> 8331f18 (Add selection shapes and chunk commands (0.9.0))
+![version](https://img.shields.io/badge/version-0.10.1-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
 
 </div>
 
@@ -27,6 +24,8 @@
 - 🧱 **Fill, replace, walls, faces, hollow, overlay, naturalize, line** / заливка, замена, стены, грани, выдалбливание, слой сверху, натурализация, линия.
 - ⚪ **Shapes** — spheres, cylinders, pyramids, solid or hollow (`hcyl`, `hsphere`, `hpyramid`). / **Фигуры** — шары, цилиндры, пирамиды, сплошные и полые.
 - 🔷 **Shapes for the selection** — `/we sel sphere 5`, `/we sel cylinder 3 4`, `/we sel ellipsoid 4 2 4`: the selection becomes a ball, a cylinder or an ellipsoid instead of a box. / **Форма выделения** — `/we sel sphere 5`, `/we sel cylinder 3 4`, `/we sel ellipsoid 4 2 4`: выделение становится шаром, цилиндром или эллипсоидом вместо коробки.
+- 🟥 **The selection is drawn for you** — a red frame around the box and a grid inside it, one cell per block. A round shape is drawn as the blocks it covers, so the outline stands on the blocks the command would change (like F3+B). The lines are drawn over everything, so the terrain does not hide the selection. / **Выделение рисуется** — красная рамка вокруг коробки и сетка внутри, ячейка ровно в один блок. Круглая фигура рисуется своими блоками, так что контур стоит на тех блоках, которые изменит команда (как F3+B). Линии рисуются поверх всего — рельеф не прячет выделение.
+- 🔲 **Your own view** — `/we grid on` and `/we grid off` turn the grid inside the selection off and on; the frame stays. The setting is yours alone. / **Своё отображение** — `/we grid on` и `/we grid off` гасят и возвращают внутреннюю сетку выделения; рамка остаётся. Настройка личная.
 - 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers. / **Чанки** — `/we chunkinfo` расскажет о чанке под вами, `/we listchunks` покажет чанки выделения.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`. / **Рельеф и жидкости**.
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move. / **Буфер обмена**.
@@ -91,6 +90,7 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we distr` | Показать, из чего состоит выделение и сколько чего | Show what the selection holds and how much of it |
 | `/we sel` (или `desel`) | Снять выделение | Clear the selection |
 | `/we sel <фигура> [размеры]` | Форма выделения: `cube`, `sphere`, `cylinder`, `ellipsoid`. С числами — объём сразу вокруг вас, без чисел — по углам `pos1`/`pos2` | Shape of the selection: `cube`, `sphere`, `cylinder`, `ellipsoid`. With sizes the shape appears around you at once, without them it follows the `pos1`/`pos2` corners |
+| `/we grid on` / `/we grid off` | Внутренняя сетка выделения: вкл или выкл. Рамка остаётся всегда. Настройка личная | The grid inside the selection: on or off. The frame always stays. Your setting alone |
 | `/we size` | Показать размеры и число блоков выделения | Show selection size and block count |
 | `/we expand <n> [direction]` | Расширить выделение на n блоков. Без направления — туда, куда вы смотрите | Grow the selection by n blocks. No direction = the way you look |
 | `/we contract <n> [direction]` | Сжать выделение с этой стороны | Shrink the selection from that side |
@@ -112,6 +112,11 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 
 - **RU:** куб — сторона; сфера — радиус, центр в первом углу; цилиндр — радиус по горизонтали и высота рядами, низ в первом углу; эллипсоид — три радиуса, центр в первом углу.
 - **EN:** a cube is its side; a sphere is a radius with its middle in the first corner; a cylinder is a horizontal radius and a height in rows, its bottom in the first corner; an ellipsoid is three radii with its middle in the first corner.
+
+## Отрисовка выделения / How the selection is drawn
+
+- **RU:** выделение рисуется на клиенте: красная рамка вокруг коробки (`#CCFF0000`) и сетка внутри (`#CCAA0000`), ячейка ровно в один блок при любом размере выделения. Круглая фигура рисуется своими блоками, квадрат за квадратом, — контур стоит ровно на тех блоках, которые изменит команда (как F3+B). Фигура с очень большим числом блоков рисуется тремя сечениями через её середину, чтобы оси не разъезжались. Линии рисуются поверх всего, поэтому рельеф не прячет выделение. `/we grid off` гасит только внутренние линии сетки, рамка остаётся; настройка своя у каждого игрока и переживает новое выделение.
+- **EN:** the selection is drawn on the client: a red frame around the box (`#CCFF0000`) and a grid inside it (`#CCAA0000`), one cell per block whatever the size of the selection is. A round shape is drawn as the blocks it covers, square by square, so the outline stands exactly on the blocks the command would change (like F3+B). A shape with too many blocks is drawn as its three sections through the middle, so its axes do not slip apart. The lines are drawn over everything, so the terrain does not hide the selection. `/we grid off` turns only the inner grid lines off; the frame stays. The setting is yours alone and survives a new selection.
 
 ## Чанки / Chunks
 
@@ -212,7 +217,6 @@ EN: `drain` does not remove water inside waterlogged blocks (e.g. stairs). `smoo
 
 ## ⚠️ Known limitations / Ограничения
 
-- Selection grid is not implemented (no line-drawing API in Horizon). / Сетка выделения не реализована (в Horizon нет API линий).
 - `regen`, brushes and schematics are not implemented. / Не реализованы `regen`, кисти и схематики.
 - `rotate` is named `/we rot` because vanilla already has `/rotate`. / Поворот буфера — `/we rot`, т. к. `/rotate` занят ванилью.
 - Block orientation (`facing`) is not rotated by `rot` / `flip`. / `rot` и `flip` не поворачивают ориентацию блоков.
@@ -220,8 +224,8 @@ EN: `drain` does not remove water inside waterlogged blocks (e.g. stairs). `smoo
 
 ## 🛠 Building / Сборка
 
-Built as a Horizon native mod (mixin bundle). Logic lives in `we_core.rs` (pure Rust, unit-tested with `cargo test`), game glue in `glue.rs`.
-Нативный мод Horizon (mixin-бандл). Логика — в `we_core.rs` (чистый Rust, тесты `cargo test`), связка с игрой — в `glue.rs`.
+Built as a Horizon native mod (mixin bundle). Logic lives in `we_core.rs` (pure Rust, unit-tested with `cargo test`), game glue in `glue.rs`, and the drawing of the selection in `geometry.rs` and `render.rs`.
+Нативный мод Horizon (mixin-бандл). Логика — в `we_core.rs` (чистый Rust, тесты `cargo test`), связка с игрой — в `glue.rs`, отрисовка выделения — в `geometry.rs` и `render.rs`.
 
 ```bash
 python3 native/tools/native.py check worldedit     # check against Horizon source
