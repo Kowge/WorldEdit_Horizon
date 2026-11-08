@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "0.6.1";
+pub const VERSION: &str = "0.6.2";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
@@ -29,7 +29,7 @@ fn creative(player: &NativeServerPlayer) -> bool {
 }
 const CREATIVE_ONLY: &str = "WorldEdit works only in creative mode (/gamemode creative).";
 const NOT_OPERATOR: &str = "WorldEdit needs operator permission level 2 or more.";
-const NOT_ADMIN: &str = "/we limit needs operator permission level 3 or more.";
+const NOT_ADMIN: &str = "/we limit needs operator permission level 4 or more.";
 
 /// Whether the player may edit: an operator (level 2 or more) in creative mode.
 fn may_edit(player: &NativeServerPlayer) -> bool {
@@ -166,7 +166,7 @@ pub fn commands(out: &mut Vec<NativeCommand>) {
     }
 }
 
-const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 3), commands start with /we: wand | pos1 | pos2 | sel (clear) | size | \
+const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 4), commands start with /we: wand | pos1 | pos2 | sel (clear) | size | \
 expand/contract/shift <n> <dir> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | outset/inset <n> | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \

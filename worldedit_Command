@@ -1,7 +1,7 @@
-# WorldEdit 0.6.0 — команды / Command reference
+# WorldEdit 0.6.2 — команды / Command reference
 
-Все команды начинаются с `/we`. Работают только в режиме creative (`/gamemode creative`).
-All commands start with `/we`. They work only in creative mode (`/gamemode creative`).
+Все команды начинаются с `/we`. Работают только в режиме creative (`/gamemode creative`) и только для операторов (уровень прав 2). `/we limit` — только для уровня прав 4.
+All commands start with `/we`. They work only in creative mode (`/gamemode creative`) and for operators (permission level 2). `/we limit` needs permission level 4.
 
 ## Выделение / Selection
 
@@ -83,7 +83,7 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we limit history <n>` | Сколько действий хранит undo (1–200) | How many edits undo keeps (1–200) |
 | `/we limit reset` | Вернуть значения по умолчанию | Restore defaults |
 
-RU: лимиты общие для всех игроков и сбрасываются при перезапуске игры. EN: limits are shared by all players and reset when the game restarts.
+RU: лимиты общие для всех игроков и сбрасываются при перезапуске игры; меняет их только оператор уровня 4. EN: limits are shared by all players and reset when the game restarts; only an operator of level 4 changes them.
 
 ## Физика / Physics
 

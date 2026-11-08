@@ -9,7 +9,7 @@ launcher compiles it into the game. There is no sandbox, so read the source befo
 
 ## Use
 
-Creative mode **and** operator permission only: every `/we` command and the wand need operator level 2 or more (`ops.json`; single-player owner with cheats on), and `/we limit` (limits shared by all players) needs level 3. A creative non-operator is refused. Everything starts with `/we`; `/we help` lists the commands.
+Creative mode **and** operator permission only: every `/we` command and the wand need operator level 2 or more (`ops.json`; single-player owner with cheats on), and `/we limit` (limits shared by all players) needs level 4. A creative non-operator is refused. Everything starts with `/we`; `/we help` lists the commands.
 
 - **Selection:** wooden axe wand (left click = first corner, right click = second), `wand`, `pos1`, `pos2`, `sel`, `size`, `expand`/`contract`/`shift`/`outset`/`inset`, `chunk`
 - **Edit:** `set`, `replace`, `overlay`, `naturalize`, `walls`, `faces`, `hollow`, `line`, `count`, `smooth`, `drain`, `fixwater`, `fixlava`

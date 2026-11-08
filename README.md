@@ -10,7 +10,7 @@ markdown
 **A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
 **Мод в духе WorldEdit для клиента [Horizon](https://playhorizon.dev) — нативный мод (`.hnmod`)**
 
-![version](https://img.shields.io/badge/version-0.6.1-blue) ![game](https://img.shields.io/badge/Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v24-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange)
+![version](https://img.shields.io/badge/version-0.6.2-blue) ![game](https://img.shields.io/badge/Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v24-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
 
 </div>
 
@@ -19,7 +19,7 @@ markdown
 ## ✨ Features / Возможности
 
 - 🪓 **Wooden axe wand** — left click = pos 1, right click = pos 2. Outside creative it is a normal axe. / **Топор-палочка**: ЛКМ — точка 1, ПКМ — точка 2. Вне creative это обычный топор.
-- 🎨 **Creative only** — every command works only in `/gamemode creative`. / **Только creative** — все команды работают только в `/gamemode creative`.
+- 🎨 **Creative only, operators only** — every command works only in `/gamemode creative` and only for operators (permission level 2); `/we limit` needs level 4. / **Только creative, только операторы** — все команды работают только в `/gamemode creative` и только для операторов (уровень прав 2), `/we limit` — только для уровня прав 4.
 - 🧱 **Fill, replace, walls, faces, hollow, overlay, naturalize, line** / заливка, замена, стены, грани, выдалбливание, слой сверху, натурализация, линия.
 - ⚪ **Shapes** — spheres, cylinders, pyramids, solid or hollow (`hcyl`, `hsphere`, `hpyramid`). / **Фигуры** — шары, цилиндры, пирамиды, сплошные и полые.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`. / **Рельеф и жидкости**.
@@ -65,8 +65,8 @@ markdown
 
 # 📖 Commands / Команды
 
-All commands start with `/we`. They work only in creative mode (`/gamemode creative`).
-Все команды начинаются с `/we`. Работают только в режиме creative (`/gamemode creative`).
+All commands start with `/we`. They work only in creative mode (`/gamemode creative`) and for operators (permission level 2). `/we limit` needs permission level 4.
+Все команды начинаются с `/we`. Работают только в режиме creative (`/gamemode creative`) и только для операторов (уровень прав 2). `/we limit` — только для уровня прав 4.
 
 ## Выделение / Selection
 
@@ -148,7 +148,7 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we limit history <n>` | Сколько действий хранит undo (1–200) | How many edits undo keeps (1–200) |
 | `/we limit reset` | Вернуть значения по умолчанию | Restore defaults |
 
-RU: лимиты общие для всех игроков и сбрасываются при перезапуске игры. EN: limits are shared by all players and reset when the game restarts.
+RU: лимиты общие для всех игроков и сбрасываются при перезапуске игры; меняет их только оператор уровня 4. EN: limits are shared by all players and reset when the game restarts; only an operator of level 4 changes them.
 
 ## Физика / Physics
 
@@ -167,8 +167,8 @@ EN: `drain` does not remove water inside waterlogged blocks (e.g. stairs). `smoo
 
 - **RU:** `stone` — один блок; `0` — воздух; `stone,dirt` — поровну; `30%stone,dirt` — 30% камня, остальное земля. Имена без `minecraft:` допустимы.
 - **EN:** `stone` = one block; `0` = air; `stone,dirt` = even mix; `30%stone,dirt` = 30% stone, the rest dirt. The `minecraft:` prefix is optional.
-- **RU:** по умолчанию за одну команду не больше 500 000 блоков, радиус и размер фигур — до 128, история — 20 действий и сбрасывается при выходе из мира.
-- **EN:** by default at most 500,000 blocks per command, shape radius and size up to 128, history keeps 20 edits and resets when you leave the world.
+- **RU:** по умолчанию за одну команду не больше 500 000 блоков, радиус и размер фигур — до 128, история — 20 действий и сбрасывается при выходе из мира. Меняет лимиты только оператор уровня 4 (`/we limit`).
+- **EN:** by default at most 500,000 blocks per command, shape radius and size up to 128, history keeps 20 edits and resets when you leave the world. Only an operator of level 4 changes the limits (`/we limit`).
 
 ---
 

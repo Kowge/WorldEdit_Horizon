@@ -22,8 +22,9 @@ pub const HISTORY: usize = 20;
 /// operation or a wand click: a game master, like vanilla's `/fill`.
 pub const LEVEL_EDIT: u8 = 2;
 /// The operator level `/we limit` needs: the limits are shared by every
-/// player, so an admin.
-pub const LEVEL_LIMIT: u8 = 3;
+/// player and a large one can freeze the server, so only an owner changes
+/// them.
+pub const LEVEL_LIMIT: u8 = 4;
 
 /// The operator level the `/we` subcommand `sub` needs.
 pub fn level_for(sub: &str) -> u8 {
@@ -929,11 +930,12 @@ mod tests {
         assert!(permitted(2, Some("set")));
         assert!(permitted(2, Some("paste")));
         assert!(!permitted(2, Some("limit")));
-        // Admins and owners do both.
-        for level in [3, 4] {
-            assert!(permitted(level, Some("limit")));
-            assert!(permitted(level, Some("replace")));
-        }
+        // A game master edits the world but not the shared limits.
+        assert!(!permitted(3, Some("limit")));
+        assert!(permitted(3, Some("replace")));
+        // Only an owner changes the limits.
+        assert!(permitted(4, Some("limit")));
+        assert!(permitted(4, Some("replace")));
     }
     use super::*;
 
