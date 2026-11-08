@@ -6,7 +6,7 @@ priority = 100
 # The commit of horizon main it was tested on. It uses only the native hook
 # points (hooks 58 in compatibility.json): it builds on any Horizon that has them.
 [compatibility]
-horizon_revision = "68ff4699847c591d3cb81f0af6b131a7e2239f3f"
+horizon_revision = "66f3981f522b24c250b21523a70080965b940424"
 
 [[module]]
 id = "core"
