@@ -1100,6 +1100,22 @@ pub fn parse_blocks(text: &str, resolve: Resolver<'_>) -> Result<Vec<u32>, Strin
     Ok(out)
 }
 
+/// The direction a player looks at, as a unit vector: the yaw 0 is south
+/// (+z) and the pitch is positive downwards, as in the game.
+pub fn look(yaw: f64, pitch: f64) -> [f64; 3] {
+    let (y, p) = (yaw.to_radians(), pitch.to_radians());
+    [-y.sin() * p.cos(), -p.sin(), y.cos() * p.cos()]
+}
+
+/// The block `distance` blocks ahead of the eye.
+pub fn ahead(eye: [f64; 3], dir: [f64; 3], distance: f64) -> Pos {
+    [
+        (eye[0] + dir[0] * distance).floor() as i32,
+        (eye[1] + dir[1] * distance).floor() as i32,
+        (eye[2] + dir[2] * distance).floor() as i32,
+    ]
+}
+
 /// A brush: the shape it leaves and the pattern it paints with.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Brush {
@@ -1112,6 +1128,9 @@ pub struct Brush {
     pub pattern: Pattern,
     /// The pattern as it was typed, for the messages.
     pub text: String,
+    /// How far ahead of the player the brush works, in blocks. Without it
+    /// the brush works on the block it was used on.
+    pub distance: Option<i32>,
 }
 
 impl Brush {
@@ -1164,6 +1183,7 @@ impl Brush {
             sizes: out,
             pattern,
             text: pattern_text.to_owned(),
+            distance: None,
         })
     }
 
@@ -1264,6 +1284,25 @@ impl Brush {
             sizes,
             pattern: self.pattern.clone(),
             text: self.text.clone(),
+            distance: self.distance,
+        })
+    }
+
+    /// The same brush, working `distance` blocks ahead of the player
+    /// instead of on the block it was used on. Without a distance the brush
+    /// works where it was used.
+    pub fn with_distance(&self, distance: Option<i32>) -> Result<Brush, String> {
+        if let Some(d) = distance {
+            if !(1..=64).contains(&d) {
+                return Err("The distance is 1 to 64 blocks.".to_owned());
+            }
+        }
+        Ok(Brush {
+            shape: self.shape,
+            sizes: self.sizes,
+            pattern: self.pattern.clone(),
+            text: self.text.clone(),
+            distance,
         })
     }
 
@@ -1278,7 +1317,11 @@ impl Brush {
                 self.sizes[0], self.sizes[1], self.sizes[2]
             ),
         };
-        format!("{shape}, {}", self.text)
+        let mut out = format!("{shape}, {}", self.text);
+        if let Some(distance) = self.distance {
+            out.push_str(&format!(", {distance} blocks ahead"));
+        }
+        out
     }
 }
 
@@ -2420,5 +2463,36 @@ mod tests {
         assert_eq!(one.positions([1, 2, 3]).unwrap(), vec![[1, 2, 3]]);
         // A radius outside the limit is refused.
         assert!(b.with_radius(1000).is_err());
+    }
+
+    #[test]
+    fn a_brush_looks_where_the_player_looks() {
+        // The yaw 0 is south (+z) and the pitch is positive downwards.
+        let south = look(0.0, 0.0);
+        assert!((south[2] - 1.0).abs() < 1e-9);
+        assert!(south[0].abs() < 1e-9 && south[1].abs() < 1e-9);
+        let west = look(90.0, 0.0);
+        assert!((west[0] + 1.0).abs() < 1e-9);
+        let down = look(0.0, 90.0);
+        assert!((down[1] + 1.0).abs() < 1e-9);
+        // The block ahead of the eye.
+        let eye = [0.0, 64.0, 0.0];
+        assert_eq!(ahead(eye, south, 10.0), [0, 64, 10]);
+        assert_eq!(ahead(eye, down, 5.0), [0, 59, 0]);
+    }
+
+    #[test]
+    fn a_brush_can_work_far_ahead_of_the_player() {
+        let b = Brush::parse("sphere 2 stone", &names).unwrap();
+        assert_eq!(b.distance, None);
+        let far = b.with_distance(Some(20)).unwrap();
+        assert_eq!(far.distance, Some(20));
+        assert!(far.describe().contains("20 blocks ahead"));
+        // The distance stays when the size changes.
+        assert_eq!(far.with_radius(3).unwrap().distance, Some(20));
+        // And it can be taken away again.
+        assert_eq!(far.with_distance(None).unwrap().distance, None);
+        // A distance out of reach is refused.
+        assert!(b.with_distance(Some(100)).is_err());
     }
 }

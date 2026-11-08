@@ -89,6 +89,8 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we grid on` / `/we grid off` | The grid inside the selection: on or off. The frame always stays. Your setting alone |
 | `/we brush <shape> [sizes] <pattern>` | Arm a brush: the wand's left click paints it on the block you click, the right click erases it. `/we brush off` puts it away |
 | `/we brush radius <n>` | The radius of the armed brush: `7` sets it, `+1` grows it, `-1` shrinks it |
+| `/we brush distance <n>` | How far ahead of you the brush works, along your view: `20` reaches 20 blocks away, `off` puts it back |
+| `/we brush at` | Paint now at the block under your view (up to 64 blocks away). `/we brush erase at` erases there |
 | `/we size` | Show selection size and block count |
 | `/we expand <n> [direction]` | Grow the selection by n blocks. No direction = the way you look |
 | `/we contract <n> [direction]` | Shrink the selection from that side |
@@ -118,6 +120,8 @@ How the sizes work:
 - The shapes are the selection's own: `sphere <radius>`, `cylinder <radius> <height>`, `cube <side>`, `ellipsoid <rx> <ry> <rz>`.
 - The pattern is a block or a mix, as everywhere else: `stone`, `30%stone,dirt`, and `0` for air.
 - `/we brush radius 7` sets the radius of the armed brush, `/we brush radius +1` grows it and `/we brush radius -1` shrinks it, so you can reach further without retyping the whole brush. A radius of 0 paints the single block you click.
+- **Work from far away**: `/we brush distance 20` makes the brush work 20 blocks ahead of you, along the line of sight, instead of on the block you click. `/we brush distance off` puts it back.
+- `/we brush at` paints right now at the block under your view — up to 64 blocks away — without a click; `/we brush erase at` erases there.
 - The brush belongs to you alone. `/we brush` says which one is armed, `/we brush off` puts it away and the wand selects the corners again.
 - A stroke is one edit: `/we undo` takes it back.
 

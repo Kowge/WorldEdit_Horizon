@@ -181,7 +181,7 @@ pub fn commands(out: &mut Vec<NativeCommand>) {
 }
 
 const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 4): every command is /we <command>, as /we set stone. \
-wand | brush <shape> [sizes] <pattern> | brush radius <n> (off) | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
+wand | brush <shape> [sizes] <pattern> | brush radius <n> | brush distance <n> | brush at | brush erase at (off) | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
 expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
@@ -319,6 +319,134 @@ fn pattern(game: &Game<'_>, text: &str) -> Result<Pattern, String> {
     Pattern::parse(text, &|name| block_id(game, name))
 }
 
+/// The message when the player has no brush.
+const NO_BRUSH: &str = "No brush. `/we brush sphere 5 stone` arms one.";
+
+/// `/we brush ...`: the brush the player paints with.
+fn brush_command(
+    game: &mut Game<'_>,
+    player: &NativeServerPlayer,
+    session: &mut Session,
+    text: &str,
+) -> Result<String, String> {
+    if text.is_empty() {
+        return Ok(match &session.brush {
+            Some(b) => format!("The brush is {}.", b.describe()),
+            None => NO_BRUSH.to_owned(),
+        });
+    }
+    if text.eq_ignore_ascii_case("off") {
+        session.brush = None;
+        return Ok("The brush is off. The wand selects the corners again.".to_owned());
+    }
+    let mut words = text.split_whitespace();
+    let first = words.next().unwrap_or_default();
+    let rest: Vec<&str> = words.collect();
+    // The size of the armed brush: `brush radius 7`.
+    if first.eq_ignore_ascii_case("radius") || first.eq_ignore_ascii_case("size") {
+        let Some(brush) = session.brush.clone() else {
+            return Err(NO_BRUSH.to_owned());
+        };
+        let Some(word) = rest.first() else {
+            return Ok(format!(
+                "The brush is {} (radius {}).",
+                brush.describe(),
+                brush.radius()
+            ));
+        };
+        let radius = if let Some(delta) = word.strip_prefix('+') {
+            brush.radius() + a_number(delta)?
+        } else if let Some(delta) = word.strip_prefix('-') {
+            brush.radius() - a_number(delta)?
+        } else {
+            a_number(word)?
+        };
+        let brush = brush.with_radius(radius)?;
+        let line = format!("The brush is {}.", brush.describe());
+        session.brush = Some(brush);
+        return Ok(line);
+    }
+    // How far ahead of the player the brush works: `brush distance 20`.
+    if first.eq_ignore_ascii_case("distance") {
+        let Some(brush) = session.brush.clone() else {
+            return Err(NO_BRUSH.to_owned());
+        };
+        let Some(word) = rest.first() else {
+            return Ok(format!("The brush is {}.", brush.describe()));
+        };
+        let distance = if word.eq_ignore_ascii_case("off") || *word == "0" {
+            None
+        } else {
+            Some(a_number(word)?)
+        };
+        let brush = brush.with_distance(distance)?;
+        let line = match brush.distance {
+            Some(_) => format!("The brush is {}.", brush.describe()),
+            None => format!("The brush is {}. It works where you use it.", brush.describe()),
+        };
+        session.brush = Some(brush);
+        return Ok(line);
+    }
+    // Paint now, at the block under the view: `brush at`, `brush erase at`.
+    if first.eq_ignore_ascii_case("at") || first.eq_ignore_ascii_case("erase") {
+        let erase = first.eq_ignore_ascii_case("erase");
+        if erase && !rest.iter().any(|w| w.eq_ignore_ascii_case("at")) {
+            return Err("`/we brush erase at` erases at the block under your view.".to_owned());
+        }
+        let Some(brush) = session.brush.clone() else {
+            return Err(NO_BRUSH.to_owned());
+        };
+        let Some(target) = brush_target(game, player, &brush, None) else {
+            return Err("Look at a block first.".to_owned());
+        };
+        let n = paint_brush(game, player, &brush, target, erase)?;
+        return Ok(format!(
+            "{n} blocks {} at {target:?}.",
+            if erase { "erased" } else { "painted" }
+        ));
+    }
+    // A new brush: `brush sphere 5 stone`.
+    let brush = {
+        let g: &Game<'_> = game;
+        we_core::Brush::parse(text, &|name| block_id(g, name))?
+    };
+    let line = format!(
+        "The brush is {}. Click a block to paint it; `/we brush off` stops it.",
+        brush.describe()
+    );
+    session.brush = Some(brush);
+    Ok(line)
+}
+
+/// Where the brush works: the block it was used on, `distance` blocks ahead
+/// of the player, or the block under the view.
+fn brush_target(
+    game: &Game<'_>,
+    player: &NativeServerPlayer,
+    brush: &we_core::Brush,
+    used: Option<Pos>,
+) -> Option<Pos> {
+    // A distance ahead of the player wins.
+    if let Some(distance) = brush.distance {
+        let eye = [
+            player.position[0],
+            player.position[1] + 1.62,
+            player.position[2],
+        ];
+        return Some(we_core::ahead(
+            eye,
+            we_core::look(f64::from(player.yaw), f64::from(player.pitch)),
+            f64::from(distance),
+        ));
+    }
+    if let Some(pos) = used {
+        return Some(pos);
+    }
+    // The block under the view, up to 64 blocks away.
+    game.native_raycast(64.0)
+        .map(|hit| [hit.block_x, hit.block_y, hit.block_z])
+}
+
 fn run(
     game: &mut Game<'_>,
     player: &NativeServerPlayer,
@@ -358,60 +486,7 @@ fn run(
             0 => Err("Your inventory is full.".to_owned()),
             _ => Ok("Left click a block for the first corner, right click for the second.".to_owned()),
         },
-        "brush" => {
-            // The brush the player paints with: `brush sphere 5 stone`.
-            let text = args[1..].join(" ");
-            if text.is_empty() {
-                return Ok(match &session.brush {
-                    Some(b) => format!(
-                        "The brush is {}. Click a block to paint it.",
-                        b.describe()
-                    ),
-                    None => "No brush. `/we brush sphere 5 stone` arms one.".to_owned(),
-                });
-            }
-            if text.eq_ignore_ascii_case("off") {
-                session.brush = None;
-                return Ok("The brush is off. The wand selects the corners again.".to_owned());
-            }
-            // The radius of the brush that is armed: `brush radius 7`, `+1`.
-            let mut words = text.split_whitespace();
-            let first = words.next().unwrap_or_default();
-            if first.eq_ignore_ascii_case("radius") || first.eq_ignore_ascii_case("size") {
-                let Some(brush) = session.brush.clone() else {
-                    return Err("No brush. `/we brush sphere 5 stone` arms one.".to_owned());
-                };
-                let rest: Vec<&str> = words.collect();
-                let Some(word) = rest.first() else {
-                    return Ok(format!(
-                        "The brush is {} (radius {}).",
-                        brush.describe(),
-                        brush.radius()
-                    ));
-                };
-                let radius = if let Some(delta) = word.strip_prefix('+') {
-                    brush.radius() + a_number(delta)?
-                } else if let Some(delta) = word.strip_prefix('-') {
-                    brush.radius() - a_number(delta)?
-                } else {
-                    a_number(word)?
-                };
-                let brush = brush.with_radius(radius)?;
-                let line = format!("The brush is {}.", brush.describe());
-                session.brush = Some(brush);
-                return Ok(line);
-            }
-            let brush = {
-                let g: &Game<'_> = game;
-                we_core::Brush::parse(&text, &|name| block_id(g, name))?
-            };
-            let line = format!(
-                "The brush is {}. Click a block to paint it; `/we brush off` stops it.",
-                brush.describe()
-            );
-            session.brush = Some(brush);
-            Ok(line)
-        }
+        "brush" => brush_command(game, player, session, &args[1..].join(" ")),
         "pos1" | "pos2" => {
             let index = if sub == "pos1" { 1 } else { 2 };
             // With a position of its own, as in vanilla: `//pos1 10,64,-5`.
@@ -951,7 +1026,7 @@ pub fn wand_click(game: &mut Game<'_>, index: u8, pos: [i32; 3]) -> bool {
     if index == 2 {
         let brush = with_sessions(|sessions| sessions.get(player.uuid).brush.clone());
         if let Some(brush) = brush {
-            return paint_brush(game, &player, &brush, pos, true);
+            return brush_erase(game, &player, &brush, pos);
         }
     }
     set_corner(game, player.uuid, &player.dimension, index, pos);
@@ -968,25 +1043,56 @@ pub fn brush_click(game: &mut Game<'_>, pos: [i32; 3]) -> bool {
     let Some(brush) = with_sessions(|sessions| sessions.get(player.uuid).brush.clone()) else {
         return false;
     };
-    paint_brush(game, &player, &brush, pos, false)
+    let Some(target) = brush_target(game, &player, &brush, Some(pos)) else {
+        return false;
+    };
+    match paint_brush(game, &player, &brush, target, false) {
+        Ok(n) => {
+            game.native_action_bar(
+                player.uuid,
+                Text::literal(format!("Brush: {n} blocks painted.")),
+            );
+        }
+        Err(why) => fail(game, why),
+    }
+    true
 }
 
-/// The brush on the block at `pos`: with its pattern, or with air when it
-/// erases. The stroke is one edit, so `/we undo` takes it back.
-fn paint_brush(
+/// The right click with a brush armed: it erases the brush's shape with air.
+fn brush_erase(
     game: &mut Game<'_>,
     player: &NativeServerPlayer,
     brush: &we_core::Brush,
     pos: [i32; 3],
-    erase: bool,
 ) -> bool {
-    let positions = match brush.positions(pos) {
-        Ok(positions) => positions,
-        Err(why) => {
-            fail(game, format!("The brush does not fit: {why}"));
-            return true;
-        }
+    let Some(target) = brush_target(game, player, brush, Some(pos)) else {
+        return false;
     };
+    match paint_brush(game, player, brush, target, true) {
+        Ok(n) => {
+            game.native_action_bar(
+                player.uuid,
+                Text::literal(format!("Brush: {n} blocks erased.")),
+            );
+        }
+        Err(why) => fail(game, why),
+    }
+    true
+}
+
+/// The brush on the block at `target`: with its pattern, or with air when it
+/// erases. The stroke is one edit, so `/we undo` takes it back. It says how
+/// many blocks changed.
+fn paint_brush(
+    game: &mut Game<'_>,
+    player: &NativeServerPlayer,
+    brush: &we_core::Brush,
+    target: Pos,
+    erase: bool,
+) -> Result<usize, String> {
+    let positions = brush
+        .positions(target)
+        .map_err(|why| format!("The brush does not fit: {why}"))?;
     let pattern = if erase {
         let air = block_id(game, "air").unwrap_or(0);
         we_core::Pattern::single(air)
@@ -1000,12 +1106,7 @@ fn paint_brush(
     };
     let n = edit.len();
     with_sessions(|sessions| sessions.get(player.uuid).record(edit));
-    let what = if erase { "erased" } else { "painted" };
-    game.native_action_bar(
-        player.uuid,
-        Text::literal(format!("Brush: {n} blocks {what}.")),
-    );
-    true
+    Ok(n)
 }
 
 /// Sets the corner `index` of the player's selection, tells them over the
@@ -1056,7 +1157,7 @@ pub fn wand_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
         return;
     }
     // The click must be within reach: a client may ask for any block.
-    if !within_reach(p.position, pos) {
+    if !within_reach(p.position, pos) && !brush_armed(player) {
         return;
     }
     // The wand in the player's hand.
@@ -1070,10 +1171,15 @@ pub fn wand_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
     // With a brush armed, the click erases instead of setting the corner.
     let brush = with_sessions(|sessions| sessions.get(player).brush.clone());
     if let Some(brush) = brush {
-        paint_brush(game, &p, &brush, pos, true);
+        brush_erase(game, &p, &brush, pos);
         return;
     }
     set_corner(game, player, &p.dimension, 2, pos);
+}
+
+/// Whether the player has a brush armed.
+fn brush_armed(player: u128) -> bool {
+    with_sessions(|sessions| sessions.get(player).brush.is_some())
 }
 
 /// Whether the block at `pos` is within the player's reach: six blocks, so
