@@ -68,8 +68,9 @@ jobs:
           # List the artifacts the provenance will refer to.
           cd worldedit-horizon/target
           files=$(ls *.hnmod)
-          # Generate the subjects (base64 encoded).
-          echo "hashes=$(sha256sum $files | base64 -w0)" >> "${GITHUB_OUTPUT}"
+          # Generate the subjects (base64 encoded). The name of the output is
+          # the one the job hands to the generator: `digests`.
+          echo "digests=$(sha256sum $files | base64 -w0)" >> "${GITHUB_OUTPUT}"
 
   provenance:
     needs: [build]
