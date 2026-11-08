@@ -1142,8 +1142,13 @@ fn schematic(
             let blocks = build.blocks.len();
             fs::create_dir_all(&dir).map_err(|e| format!("The schematics folder cannot be made: {e}"))?;
             let path = dir.join(format!("{name}.wehs"));
+            let replaced = path.exists();
             fs::write(&path, build.encode()).map_err(|e| format!("The schematic cannot be written: {e}"))?;
-            Ok(format!("Schematic `{name}` saved: {blocks} blocks."))
+            Ok(if replaced {
+                format!("Schematic `{name}` saved: {blocks} blocks (the old one was replaced).")
+            } else {
+                format!("Schematic `{name}` saved: {blocks} blocks.")
+            })
         }
         Some("load") => {
             let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
