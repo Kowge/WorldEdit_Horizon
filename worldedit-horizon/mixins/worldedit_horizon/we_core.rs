@@ -234,12 +234,481 @@ impl Cuboid {
     }
 }
 
+/// The shape of a selection: a plain box, or a round shape inside it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Shape {
+    #[default]
+    Cube,
+    Sphere,
+    Cylinder,
+    Ellipsoid,
+}
+
+impl Shape {
+    /// The shape a word names, as in `//sel sphere`.
+    pub fn parse(word: &str) -> Option<Shape> {
+        Some(match word.to_ascii_lowercase().as_str() {
+            "cube" | "box" => Shape::Cube,
+            "sphere" | "ball" => Shape::Sphere,
+            "cylinder" | "cyl" => Shape::Cylinder,
+            "ellipsoid" => Shape::Ellipsoid,
+            _ => return None,
+        })
+    }
+    /// The shape's name, as a command writes it.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Shape::Cube => "cube",
+            Shape::Sphere => "sphere",
+            Shape::Cylinder => "cylinder",
+            Shape::Ellipsoid => "ellipsoid",
+        }
+    }
+}
+
+/// The distance between two blocks, rounded.
+fn distance(a: Pos, b: Pos) -> i32 {
+    let d = sub(b, a);
+    let (x, y, z) = (d[0] as f64, d[1] as f64, d[2] as f64);
+    (x * x + y * y + z * z).sqrt().round() as i32
+}
+
+/// The distance between two blocks, sideways only.
+fn horizontal_distance(a: Pos, b: Pos) -> i32 {
+    let dx = (b[0] - a[0]) as f64;
+    let dz = (b[2] - a[2]) as f64;
+    (dx * dx + dz * dz).sqrt().round() as i32
+}
+
+/// A selected volume: a box, and the shape inside it (vanilla's `//sel`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Region {
+    /// The box the shape sits in.
+    pub min: Pos,
+    pub max: Pos,
+    pub shape: Shape,
+    /// The shape's middle: the first corner for a sphere and an ellipsoid,
+    /// the middle of the bottom for a cylinder, the box's middle for a cube.
+    pub center: Pos,
+    /// The shape's own sizes: a cube's three sides, a sphere's radius, a
+    /// cylinder's radius and height, an ellipsoid's three radii.
+    pub sizes: [i32; 3],
+}
+
+impl Region {
+    /// The box between two corners: a plain cube.
+    pub fn cube(a: Pos, b: Pos) -> Region {
+        let c = Cuboid::new(a, b);
+        let s = c.size();
+        Region {
+            min: c.min,
+            max: c.max,
+            shape: Shape::Cube,
+            center: [
+                c.min[0] + (s[0] - 1) / 2,
+                c.min[1] + (s[1] - 1) / 2,
+                c.min[2] + (s[2] - 1) / 2,
+            ],
+            sizes: s,
+        }
+    }
+    /// A shape from the two corners the player picked: for a cube they are
+    /// the box's corners, for a sphere the first is its middle and the
+    /// second a point on its surface, for a cylinder the first the middle of
+    /// the bottom and the second a point on the top rim, for an ellipsoid
+    /// the first its middle and the second one of its corners.
+    pub fn from_corners(pos1: Pos, pos2: Pos, shape: Shape) -> Region {
+        match shape {
+            Shape::Cube => Region::cube(pos1, pos2),
+            Shape::Sphere => {
+                let r = distance(pos1, pos2).max(1);
+                Region {
+                    min: [pos1[0] - r, pos1[1] - r, pos1[2] - r],
+                    max: [pos1[0] + r, pos1[1] + r, pos1[2] + r],
+                    shape,
+                    center: pos1,
+                    sizes: [r, 0, 0],
+                }
+            }
+            Shape::Cylinder => {
+                let r = horizontal_distance(pos1, pos2).max(1);
+                let h = (pos2[1] - pos1[1]).abs().max(1);
+                Region {
+                    min: [pos1[0] - r, pos1[1], pos1[2] - r],
+                    max: [pos1[0] + r, pos1[1] + h - 1, pos1[2] + r],
+                    shape,
+                    center: pos1,
+                    sizes: [r, h, 0],
+                }
+            }
+            Shape::Ellipsoid => {
+                let radii = [
+                    (pos2[0] - pos1[0]).abs().max(1),
+                    (pos2[1] - pos1[1]).abs().max(1),
+                    (pos2[2] - pos1[2]).abs().max(1),
+                ];
+                Region {
+                    min: [
+                        pos1[0] - radii[0],
+                        pos1[1] - radii[1],
+                        pos1[2] - radii[2],
+                    ],
+                    max: [
+                        pos1[0] + radii[0],
+                        pos1[1] + radii[1],
+                        pos1[2] + radii[2],
+                    ],
+                    shape,
+                    center: pos1,
+                    sizes: radii,
+                }
+            }
+        }
+    }
+    /// A shape around a point, with the sizes the player gave: a cube's
+    /// side, a sphere's radius, a cylinder's radius and height, an
+    /// ellipsoid's three radii.
+    pub fn around(shape: Shape, center: Pos, sizes: &[i32]) -> Result<Region, String> {
+        let want = |n: usize, what: &str| -> Result<(), String> {
+            if sizes.len() >= n {
+                Ok(())
+            } else {
+                Err(format!("A {} needs {what}.", shape.name()))
+            }
+        };
+        match shape {
+            Shape::Cube => {
+                want(1, "side")?;
+                let s = sizes[0].max(1);
+                let half = s / 2;
+                Ok(Region::cube(
+                    [center[0] - half, center[1] - half, center[2] - half],
+                    [
+                        center[0] + s - 1 - half,
+                        center[1] + s - 1 - half,
+                        center[2] + s - 1 - half,
+                    ],
+                ))
+            }
+            Shape::Sphere => {
+                want(1, "radius")?;
+                let r = sizes[0].max(1);
+                Ok(Region::from_corners(
+                    center,
+                    [center[0] + r, center[1], center[2]],
+                    shape,
+                ))
+            }
+            Shape::Cylinder => {
+                want(1, "radius")?;
+                let r = sizes[0].max(1);
+                let h = sizes.get(1).copied().unwrap_or(1).max(1);
+                Ok(Region::from_corners(
+                    center,
+                    [center[0] + r, center[1] + h, center[2]],
+                    shape,
+                ))
+            }
+            Shape::Ellipsoid => {
+                want(3, "three radii")?;
+                let radii = [sizes[0].max(1), sizes[1].max(1), sizes[2].max(1)];
+                Ok(Region::from_corners(
+                    center,
+                    [
+                        center[0] + radii[0],
+                        center[1] + radii[1],
+                        center[2] + radii[2],
+                    ],
+                    shape,
+                ))
+            }
+        }
+    }
+    /// Blocks along each axis of the box.
+    pub fn size(&self) -> [i32; 3] {
+        let d = sub(self.max, self.min);
+        [d[0] + 1, d[1] + 1, d[2] + 1]
+    }
+    /// The blocks of the selection. For a round shape the box is only an
+    /// upper bound: the count is exact, but a box too big for the limit is
+    /// refused before it is counted.
+    pub fn volume(&self) -> u64 {
+        let s = self.size();
+        let box_volume = s[0] as u64 * s[1] as u64 * s[2] as u64;
+        if self.shape == Shape::Cube || box_volume > max_blocks() {
+            return box_volume;
+        }
+        let mut n = 0u64;
+        for y in self.min[1]..=self.max[1] {
+            for x in self.min[0]..=self.max[0] {
+                for z in self.min[2]..=self.max[2] {
+                    if self.contains([x, y, z]) {
+                        n += 1;
+                    }
+                }
+            }
+        }
+        n
+    }
+    /// Whether a block is inside the selection.
+    pub fn contains(&self, p: Pos) -> bool {
+        match self.shape {
+            Shape::Cube => (0..3).all(|i| p[i] >= self.min[i] && p[i] <= self.max[i]),
+            Shape::Sphere => {
+                let d = sub(p, self.center);
+                let r = self.sizes[0] as i64;
+                (d[0] as i64) * (d[0] as i64) + (d[1] as i64) * (d[1] as i64)
+                    + (d[2] as i64) * (d[2] as i64)
+                    <= r * r
+            }
+            Shape::Cylinder => {
+                let dx = (p[0] - self.center[0]) as i64;
+                let dz = (p[2] - self.center[2]) as i64;
+                let r = self.sizes[0] as i64;
+                dx * dx + dz * dz <= r * r && p[1] >= self.min[1] && p[1] <= self.max[1]
+            }
+            Shape::Ellipsoid => {
+                let mut sum = 0.0f64;
+                for i in 0..3 {
+                    let d = (p[i] - self.center[i]) as f64 / self.sizes[i] as f64;
+                    sum += d * d;
+                }
+                sum <= 1.0
+            }
+        }
+    }
+    /// Every block of the selection, lowest layer first.
+    pub fn positions(&self) -> Vec<Pos> {
+        if self.shape == Shape::Cube {
+            return Cuboid {
+                min: self.min,
+                max: self.max,
+            }
+            .positions();
+        }
+        let mut out = Vec::new();
+        for y in self.min[1]..=self.max[1] {
+            for x in self.min[0]..=self.max[0] {
+                for z in self.min[2]..=self.max[2] {
+                    let p = [x, y, z];
+                    if self.contains(p) {
+                        out.push(p);
+                    }
+                }
+            }
+        }
+        out
+    }
+    /// The four vertical sides.
+    pub fn walls(&self) -> Vec<Pos> {
+        self.positions()
+            .into_iter()
+            .filter(|p| {
+                !self.contains([p[0] - 1, p[1], p[2]])
+                    || !self.contains([p[0] + 1, p[1], p[2]])
+                    || !self.contains([p[0], p[1], p[2] - 1])
+                    || !self.contains([p[0], p[1], p[2] + 1])
+            })
+            .collect()
+    }
+    /// The six sides.
+    pub fn faces(&self) -> Vec<Pos> {
+        self.positions()
+            .into_iter()
+            .filter(|p| {
+                !(self.contains([p[0] - 1, p[1], p[2]])
+                    && self.contains([p[0] + 1, p[1], p[2]])
+                    && self.contains([p[0], p[1] - 1, p[2]])
+                    && self.contains([p[0], p[1] + 1, p[2]])
+                    && self.contains([p[0], p[1], p[2] - 1])
+                    && self.contains([p[0], p[1], p[2] + 1]))
+            })
+            .collect()
+    }
+    /// Grown by `n` blocks on every side (a negative `n` shrinks it).
+    pub fn grown(&self, n: i32) -> Option<Region> {
+        match self.shape {
+            Shape::Cube => {
+                let c = Cuboid {
+                    min: [
+                        self.min[0] - n,
+                        self.min[1] - n,
+                        self.min[2] - n,
+                    ],
+                    max: [
+                        self.max[0] + n,
+                        self.max[1] + n,
+                        self.max[2] + n,
+                    ],
+                };
+                (c.min[0] <= c.max[0] && c.min[1] <= c.max[1] && c.min[2] <= c.max[2])
+                    .then(|| Region::cube(c.min, c.max))
+            }
+            Shape::Sphere => {
+                let r = self.sizes[0] + n;
+                (r >= 1).then(|| {
+                    Region::from_corners(
+                        self.center,
+                        [self.center[0] + r, self.center[1], self.center[2]],
+                        self.shape,
+                    )
+                })
+            }
+            Shape::Cylinder => {
+                let r = self.sizes[0] + n;
+                let h = self.sizes[1] + n;
+                (r >= 1 && h >= 1).then(|| {
+                    Region::from_corners(
+                        self.center,
+                        [self.center[0] + r, self.center[1] + h, self.center[2]],
+                        self.shape,
+                    )
+                })
+            }
+            Shape::Ellipsoid => {
+                let radii = [
+                    self.sizes[0] + n,
+                    self.sizes[1] + n,
+                    self.sizes[2] + n,
+                ];
+                (radii.iter().all(|r| *r >= 1)).then(|| {
+                    Region::from_corners(
+                        self.center,
+                        [
+                            self.center[0] + radii[0],
+                            self.center[1] + radii[1],
+                            self.center[2] + radii[2],
+                        ],
+                        self.shape,
+                    )
+                })
+            }
+        }
+    }
+    /// Grows the selection by `amount` blocks towards `dir` (a negative
+    /// amount shrinks that side).
+    pub fn expand(&self, dir: Dir, amount: i32) -> Option<Region> {
+        let v = dir.vector();
+        let axis = (0..3).find(|&i| v[i] != 0)?;
+        match self.shape {
+            Shape::Cube => {
+                let mut c = *self;
+                if v[axis] > 0 {
+                    c.max[axis] += amount;
+                } else {
+                    c.min[axis] -= amount;
+                }
+                (c.min[axis] <= c.max[axis]).then(|| Region::cube(c.min, c.max))
+            }
+            Shape::Sphere => self.grown(amount),
+            Shape::Cylinder => {
+                if axis == 1 {
+                    let h = self.sizes[1] + amount;
+                    (h >= 1).then(|| {
+                        Region::from_corners(
+                            self.center,
+                            [self.center[0] + self.sizes[0], self.center[1] + h, self.center[2]],
+                            self.shape,
+                        )
+                    })
+                } else {
+                    let r = self.sizes[0] + amount;
+                    (r >= 1).then(|| {
+                        Region::from_corners(
+                            self.center,
+                            [self.center[0] + r, self.center[1] + self.sizes[1], self.center[2]],
+                            self.shape,
+                        )
+                    })
+                }
+            }
+            Shape::Ellipsoid => {
+                let mut radii = self.sizes;
+                radii[axis] += amount;
+                (radii[axis] >= 1).then(|| {
+                    Region::from_corners(
+                        self.center,
+                        [
+                            self.center[0] + radii[0],
+                            self.center[1] + radii[1],
+                            self.center[2] + radii[2],
+                        ],
+                        self.shape,
+                    )
+                })
+            }
+        }
+    }
+    /// Pulls the side facing `dir` in by `amount` blocks.
+    pub fn contract(&self, dir: Dir, amount: i32) -> Option<Region> {
+        self.expand(dir, -amount)
+    }
+    /// The selection moved by `offset`.
+    pub fn shifted(&self, offset: Pos) -> Region {
+        Region {
+            min: add(self.min, offset),
+            max: add(self.max, offset),
+            shape: self.shape,
+            center: add(self.center, offset),
+            sizes: self.sizes,
+        }
+    }
+    /// The box of the selection.
+    pub fn cuboid(&self) -> Cuboid {
+        Cuboid {
+            min: self.min,
+            max: self.max,
+        }
+    }
+}
+
+/// The chunk a block is in.
+pub fn chunk_of(pos: Pos) -> (i32, i32) {
+    (pos[0].div_euclid(16), pos[2].div_euclid(16))
+}
+
+/// The chunks a selection covers, in reading order.
+pub fn chunks_of(region: &Region) -> Vec<(i32, i32)> {
+    let (min_x, min_z) = chunk_of(region.min);
+    let (max_x, max_z) = chunk_of(region.max);
+    let mut out = Vec::new();
+    for cx in min_x..=max_x {
+        for cz in min_z..=max_z {
+            out.push((cx, cz));
+        }
+    }
+    out
+}
+
+/// How many blocks of a chunk are not air.
+pub fn chunk_filled<W: World>(
+    world: &W,
+    chunk: (i32, i32),
+    bottom: i32,
+    top: i32,
+    air: u32,
+) -> u64 {
+    let mut n = 0u64;
+    for y in bottom..=top {
+        for x in chunk.0 * 16..=chunk.0 * 16 + 15 {
+            for z in chunk.1 * 16..=chunk.1 * 16 + 15 {
+                if world.get([x, y, z]) != air {
+                    n += 1;
+                }
+            }
+        }
+    }
+    n
+}
+
 /// A player's two corners, in a dimension.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Selection {
     pub dimension: String,
     pub pos1: Option<Pos>,
     pub pos2: Option<Pos>,
+    /// The shape of the selection: a plain box, or a round shape.
+    pub shape: Shape,
 }
 
 impl Selection {
@@ -259,13 +728,48 @@ impl Selection {
     pub fn cuboid(&self) -> Option<Cuboid> {
         Some(Cuboid::new(self.pos1?, self.pos2?))
     }
+    /// The selection as a volume, with its shape.
+    pub fn region(&self) -> Option<Region> {
+        Some(Region::from_corners(self.pos1?, self.pos2?, self.shape))
+    }
     pub fn set_cuboid(&mut self, c: Cuboid) {
         self.pos1 = Some(c.min);
         self.pos2 = Some(c.max);
+        self.shape = Shape::Cube;
+    }
+    /// Takes a volume as the selection: the corners are the ones that make
+    /// the shape again.
+    pub fn set_region(&mut self, r: &Region) {
+        self.shape = r.shape;
+        match r.shape {
+            Shape::Cube => {
+                self.pos1 = Some(r.min);
+                self.pos2 = Some(r.max);
+            }
+            Shape::Sphere => {
+                self.pos1 = Some(r.center);
+                self.pos2 = Some([r.center[0] + r.sizes[0], r.center[1], r.center[2]]);
+            }
+            Shape::Cylinder => {
+                self.pos1 = Some([r.center[0], r.min[1], r.center[2]]);
+                // The height is the number of rows, so the second corner sits
+                // one row above the top of the cylinder.
+                self.pos2 = Some([r.center[0] + r.sizes[0], r.max[1] + 1, r.center[2]]);
+            }
+            Shape::Ellipsoid => {
+                self.pos1 = Some(r.center);
+                self.pos2 = Some([
+                    r.center[0] + r.sizes[0],
+                    r.center[1] + r.sizes[1],
+                    r.center[2] + r.sizes[2],
+                ]);
+            }
+        }
     }
     pub fn clear(&mut self) {
         self.pos1 = None;
         self.pos2 = None;
+        self.shape = Shape::Cube;
     }
 }
 
@@ -588,13 +1092,13 @@ pub fn distribution<W: World>(world: &W, positions: &[Pos]) -> Vec<(u32, u64)> {
     out
 }
 
-/// The box around the blocks that are not air in `c` (vanilla's `//trim`).
-/// None when there is nothing but air.
-pub fn trim_to_existing<W: World>(world: &W, c: &Cuboid, air: u32) -> Option<Cuboid> {
-    let mut min = c.max;
-    let mut max = c.min;
+/// The box around the blocks that are not air in `r` (vanilla's `//trim`).
+/// None when there is nothing but air. The shape stays, its box shrinks.
+pub fn trim_to_existing<W: World>(world: &W, r: &Region, air: u32) -> Option<Region> {
+    let mut min = r.max;
+    let mut max = r.min;
     let mut any = false;
-    for p in c.positions() {
+    for p in r.positions() {
         if world.get(p) == air {
             continue;
         }
@@ -604,7 +1108,27 @@ pub fn trim_to_existing<W: World>(world: &W, c: &Cuboid, air: u32) -> Option<Cub
             max[i] = max[i].max(p[i]);
         }
     }
-    any.then_some(Cuboid { min, max })
+    if !any {
+        return None;
+    }
+    // The shape keeps its own bounds: only the box around it shrinks.
+    let min = [
+        min[0].max(r.min[0]),
+        min[1].max(r.min[1]),
+        min[2].max(r.min[2]),
+    ];
+    let max = [
+        max[0].min(r.max[0]),
+        max[1].min(r.max[1]),
+        max[2].min(r.max[2]),
+    ];
+    Some(Region {
+        min,
+        max,
+        shape: r.shape,
+        center: r.center,
+        sizes: r.sizes,
+    })
 }
 
 /// The hole around `center` that is filled: a ball of `radius` and `depth`
@@ -739,7 +1263,7 @@ pub fn line(a: Pos, b: Pos) -> Result<Vec<Pos>, String> {
 /// `overlay`: a block of `pattern` on top of the highest block of each column.
 pub fn overlay_writes<W: World>(
     world: &W,
-    region: &Cuboid,
+    region: &Region,
     air: u32,
     pattern: &Pattern,
 ) -> Vec<(Pos, u32)> {
@@ -762,7 +1286,7 @@ pub fn overlay_writes<W: World>(
 /// rest of its solid run `deep`.
 pub fn naturalize_writes<W: World>(
     world: &W,
-    region: &Cuboid,
+    region: &Region,
     air: u32,
     (top, soil, deep): (u32, u32, u32),
 ) -> Vec<(Pos, u32)> {
@@ -806,7 +1330,7 @@ pub fn replace_except<W: World>(
 /// surface (the block under the old top) and removed from a lowered one.
 pub fn smooth_writes<W: World>(
     world: &W,
-    region: &Cuboid,
+    region: &Region,
     air: u32,
     iterations: u32,
 ) -> Vec<(Pos, u32)> {
@@ -893,7 +1417,7 @@ pub struct Clipboard {
 }
 
 impl Clipboard {
-    pub fn copy<W: World>(world: &W, region: &Cuboid, origin: Pos) -> Clipboard {
+    pub fn copy<W: World>(world: &W, region: &Region, origin: Pos) -> Clipboard {
         Clipboard {
             blocks: region
                 .positions()
@@ -944,7 +1468,7 @@ impl Clipboard {
 /// The writes of `stack`: the region repeated `times` along `dir`.
 pub fn stack_writes<W: World>(
     world: &W,
-    region: &Cuboid,
+    region: &Region,
     dir: Dir,
     times: i32,
 ) -> Result<Vec<(Pos, u32)>, String> {
@@ -972,7 +1496,7 @@ pub fn stack_writes<W: World>(
 /// `distance` blocks along `dir`.
 pub fn move_writes<W: World>(
     world: &W,
-    region: &Cuboid,
+    region: &Region,
     dir: Dir,
     distance: i32,
     fill: u32,
@@ -1245,7 +1769,7 @@ mod tests {
         assert_eq!((l[0], *l.last().unwrap()), ([0, 0, 0], [4, 2, 0]));
         assert_eq!(l.len(), 5);
         assert_eq!(line([1, 1, 1], [1, 1, 1]).unwrap().len(), 1);
-        let c = Cuboid::new([0, 0, 0], [2, 2, 2]);
+        let c = Region::cube([0, 0, 0], [2, 2, 2]);
         assert_eq!(c.grown(1).unwrap().size(), [5, 5, 5]);
         assert!(c.grown(-2).is_none());
         let mut w = Map::default();
@@ -1279,12 +1803,12 @@ mod tests {
         for y in 1..=3 {
             w.0.insert([1, y, 1], 1);
         }
-        let c = Cuboid::new([0, 0, 0], [2, 5, 2]);
+        let c = Region::cube([0, 0, 0], [2, 5, 2]);
         let writes = smooth_writes(&w, &c, 0, 1);
         apply(&mut w, writes);
         assert_eq!(w.get([1, 3, 1]), 0, "the spike came down");
         assert_ne!(w.get([0, 1, 0]), 0, "its sides came up");
-        let flat = smooth_writes(&w, &Cuboid::new([5, 0, 5], [6, 3, 6]), 0, 3);
+        let flat = smooth_writes(&w, &Region::cube([5, 0, 5], [6, 3, 6]), 0, 3);
         assert!(flat.is_empty());
     }
 
@@ -1292,7 +1816,7 @@ mod tests {
     fn copy_rotate_flip_and_paste() {
         let mut w = Map::default();
         w.0.insert([1, 0, 0], 7);
-        let c = Cuboid::new([0, 0, 0], [1, 0, 0]);
+        let c = Region::cube([0, 0, 0], [1, 0, 0]);
         let mut clip = Clipboard::copy(&w, &c, [0, 0, 0]);
         clip.rotate(90).unwrap();
         let writes = clip.writes([10, 0, 10], None);
@@ -1310,7 +1834,7 @@ mod tests {
     fn stack_and_move() {
         let mut w = Map::default();
         w.0.insert([0, 0, 0], 5);
-        let c = Cuboid::new([0, 0, 0], [0, 1, 0]);
+        let c = Region::cube([0, 0, 0], [0, 1, 0]);
         let writes = stack_writes(&w, &c, Dir::East, 2).unwrap();
         apply(&mut w, writes);
         assert_eq!((w.get([1, 0, 0]), w.get([2, 0, 0])), (5, 5));
@@ -1325,7 +1849,7 @@ mod tests {
         assert!(check_limit(MAX_BLOCKS).is_ok());
         assert!(check_limit(MAX_BLOCKS + 1).is_err());
         let w = Map::default();
-        let c = Cuboid::new([0, 0, 0], [999, 999, 999]);
+        let c = Region::cube([0, 0, 0], [999, 999, 999]);
         assert!(stack_writes(&w, &c, Dir::Up, 1).is_err());
     }
 
@@ -1364,10 +1888,10 @@ mod tests {
         let mut w = Map::default();
         w.0.insert([1, 2, 3], 1);
         w.0.insert([4, 5, 6], 1);
-        let c = Cuboid::new([0, 0, 0], [6, 6, 6]);
+        let c = Region::cube([0, 0, 0], [6, 6, 6]);
         let t = trim_to_existing(&w, &c, 0).unwrap();
         assert_eq!((t.min, t.max), ([1, 2, 3], [4, 5, 6]));
-        let empty = Cuboid::new([20, 20, 20], [21, 21, 21]);
+        let empty = Region::cube([20, 20, 20], [21, 21, 21]);
         assert!(trim_to_existing(&w, &empty, 0).is_none());
     }
 
@@ -1413,5 +1937,106 @@ mod tests {
         assert_eq!(down.len(), 3, "the square around the player");
         assert!(down.contains(&[0, 0, 0]) && down.contains(&[0, 1, 0]));
         assert!(down.contains(&[1, 1, 1]), "the square is one block wide");
+    }
+
+    #[test]
+    fn a_cube_around_the_player_is_a_box() {
+        let r = Region::around(Shape::Cube, [0, 0, 0], &[3]).unwrap();
+        assert_eq!(r.shape, Shape::Cube);
+        assert_eq!(r.size(), [3, 3, 3]);
+        assert_eq!(r.volume(), 27);
+        assert!(r.contains([-1, -1, -1]) && r.contains([1, 1, 1]));
+        assert!(!r.contains([2, 0, 0]));
+    }
+
+    #[test]
+    fn a_sphere_is_the_ball_around_the_player() {
+        let r = Region::around(Shape::Sphere, [0, 0, 0], &[2]).unwrap();
+        assert_eq!(r.shape, Shape::Sphere);
+        assert_eq!(r.sizes, [2, 0, 0]);
+        // The lattice points in a ball of radius 2.
+        assert_eq!(r.volume(), 33);
+        assert!(r.contains([2, 0, 0]) && r.contains([1, 1, 1]));
+        assert!(!r.contains([3, 0, 0]) && !r.contains([2, 2, 0]));
+        assert_eq!(r.positions().len(), 33);
+    }
+
+    #[test]
+    fn a_cylinder_is_a_tube_up_from_the_player() {
+        let r = Region::around(Shape::Cylinder, [0, 0, 0], &[2, 3]).unwrap();
+        assert_eq!(r.shape, Shape::Cylinder);
+        assert_eq!(r.sizes, [2, 3, 0]);
+        // 13 columns of three blocks.
+        assert_eq!(r.volume(), 39);
+        assert!(r.contains([0, 2, 0]) && r.contains([2, 0, 0]));
+        assert!(!r.contains([0, 3, 0]) && !r.contains([3, 0, 0]));
+    }
+
+    #[test]
+    fn an_ellipsoid_stretches_the_ball() {
+        let r = Region::around(Shape::Ellipsoid, [0, 0, 0], &[2, 1, 2]).unwrap();
+        assert_eq!(r.shape, Shape::Ellipsoid);
+        assert_eq!(r.sizes, [2, 1, 2]);
+        // The same 13 columns, but only the middle one is three blocks high.
+        assert_eq!(r.volume(), 15);
+        assert!(r.contains([0, 1, 0]) && r.contains([2, 0, 0]));
+        assert!(!r.contains([0, 2, 0]));
+    }
+
+    #[test]
+    fn the_selection_keeps_its_shape() {
+        let mut s = Selection::default();
+        s.set_pos(1, "minecraft:overworld", [0, 0, 0]);
+        s.set_pos(2, "minecraft:overworld", [3, 0, 0]);
+        s.shape = Shape::Sphere;
+        let r = s.region().unwrap();
+        assert_eq!(r.shape, Shape::Sphere);
+        assert_eq!(r.sizes, [3, 0, 0]);
+        assert_eq!(r.volume(), 123);
+        // The corners the shape needs are the ones that make it again.
+        let mut s2 = Selection::default();
+        s2.set_region(&r);
+        assert_eq!(s2.region().unwrap(), r);
+    }
+
+    #[test]
+    fn a_round_selection_grows_by_its_radius() {
+        let r = Region::around(Shape::Sphere, [0, 0, 0], &[2]).unwrap();
+        let bigger = r.grown(1).unwrap();
+        assert_eq!(bigger.sizes, [3, 0, 0]);
+        let smaller = r.grown(-1).unwrap();
+        assert_eq!(smaller.sizes, [1, 0, 0]);
+        assert!(r.grown(-2).is_none());
+        let up = r.expand(Dir::Up, 2).unwrap();
+        assert_eq!(up.sizes, [4, 0, 0]);
+    }
+
+    #[test]
+    fn chunks_are_counted_from_the_blocks() {
+        assert_eq!(chunk_of([0, 0, 0]), (0, 0));
+        assert_eq!(chunk_of([15, 0, 15]), (0, 0));
+        assert_eq!(chunk_of([-1, 0, 0]), (-1, 0));
+        assert_eq!(chunk_of([16, 0, -16]), (1, -1));
+        let r = Region::cube([0, 0, 0], [31, 0, 15]);
+        assert_eq!(chunks_of(&r), vec![(0, 0), (1, 0)]);
+        let mut w = Map::default();
+        w.0.insert([0, 0, 0], 1);
+        w.0.insert([15, 319, 15], 1);
+        assert_eq!(chunk_filled(&w, (0, 0), -64, 319, 0), 2);
+    }
+
+    #[test]
+    fn every_shape_survives_the_corners() {
+        for (shape, sizes) in [
+            (Shape::Cube, vec![3]),
+            (Shape::Sphere, vec![2]),
+            (Shape::Cylinder, vec![2, 3]),
+            (Shape::Ellipsoid, vec![2, 1, 2]),
+        ] {
+            let r = Region::around(shape, [0, 0, 0], &sizes).unwrap();
+            let mut s = Selection::default();
+            s.set_region(&r);
+            assert_eq!(s.region().unwrap(), r, "{shape:?} does not survive");
+        }
     }
 }

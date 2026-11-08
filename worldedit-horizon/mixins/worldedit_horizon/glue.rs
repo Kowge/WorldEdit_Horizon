@@ -7,7 +7,7 @@ use crate::game::{
     Game,
     native_server::{NativeCommand, NativeServerPlayer},
     we_core::{
-        self, Clipboard, Cuboid, Dir, Pattern, Pos, Session, Sessions, World,
+        self, Clipboard, Dir, Pattern, Pos, Region, Session, Sessions, Shape, World,
     },
 };
 use horizon_client::text::{self, Text};
@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "0.8.0";
+pub const VERSION: &str = "0.9.0";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
@@ -127,13 +127,15 @@ const USAGES: &[&str] = &[
     "we outset <amount:integer>",
     "we inset <amount:integer>",
     "we chunk",
+    "we chunkinfo",
+    "we listchunks",
     "we limit [what:word] [value:integer]",
     "we pos1 [coordinates:word]",
     "we pos2 [coordinates:word]",
     "we pos",
     "we hpos1",
     "we hpos2",
-    "we sel",
+    "we sel [args:text]",
     "we desel",
     "we size",
     "we trim",
@@ -177,7 +179,7 @@ pub fn commands(out: &mut Vec<NativeCommand>) {
 }
 
 const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 4): every command is /we <command>, as /we set stone. \
-wand | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear) | size | trim | distr | \
+wand | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | size | trim | distr | chunk | chunkinfo | listchunks | \
 expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
@@ -264,10 +266,10 @@ fn targeted(game: &Game<'_>) -> Result<Pos, String> {
     Ok([hit.block_x, hit.block_y, hit.block_z])
 }
 
-fn region(session: &Session, player: &NativeServerPlayer) -> Result<Cuboid, String> {
+fn region(session: &Session, player: &NativeServerPlayer) -> Result<Region, String> {
     let c = session
         .selection
-        .cuboid()
+        .region()
         .ok_or_else(|| "Select two corners first (/we wand, or /we pos1 and /we pos2).".to_owned())?;
     if session.selection.dimension != player.dimension {
         return Err("Your selection is in another dimension.".to_owned());
@@ -275,17 +277,26 @@ fn region(session: &Session, player: &NativeServerPlayer) -> Result<Cuboid, Stri
     Ok(c)
 }
 
-fn describe(c: &Cuboid) -> String {
+fn describe(c: &Region) -> String {
     let s = c.size();
-    format!(
-        "{} x {} x {} = {} blocks, {:?} to {:?}",
-        s[0],
-        s[1],
-        s[2],
-        c.volume(),
-        c.min,
-        c.max
-    )
+    let shape = match c.shape {
+        Shape::Cube => format!("{} x {} x {} = {} blocks", s[0], s[1], s[2], c.volume()),
+        Shape::Sphere => format!("sphere r={} = {} blocks", c.sizes[0], c.volume()),
+        Shape::Cylinder => format!(
+            "cylinder r={} h={} = {} blocks",
+            c.sizes[0],
+            c.sizes[1],
+            c.volume()
+        ),
+        Shape::Ellipsoid => format!(
+            "ellipsoid {}x{}x{} = {} blocks",
+            c.sizes[0],
+            c.sizes[1],
+            c.sizes[2],
+            c.volume()
+        ),
+    };
+    format!("{shape}, {:?} to {:?}", c.min, c.max)
 }
 
 fn pattern(game: &Game<'_>, text: &str) -> Result<Pattern, String> {
@@ -408,15 +419,15 @@ fn run(
             let next = c
                 .grown(n)
                 .ok_or_else(|| "The selection would be empty.".to_owned())?;
-            session.selection.set_cuboid(next);
+            session.selection.set_region(&next);
             Ok(describe(&next))
         }
         "chunk" => {
             let x = origin[0].div_euclid(16) * 16;
             let z = origin[2].div_euclid(16) * 16;
-            let c = Cuboid::new([x, -64, z], [x + 15, 319, z + 15]);
-            session.selection.set_pos(1, &dimension, c.min);
-            session.selection.set_cuboid(c);
+            let c = Region::cube([x, -64, z], [x + 15, 319, z + 15]);
+            session.selection.dimension = dimension.clone();
+            session.selection.set_region(&c);
             Ok(describe(&c))
         }
         "line" => {
@@ -478,9 +489,74 @@ fn run(
             session.record(edit);
             Ok(format!("{n} blocks changed."))
         }
-        "sel" | "desel" => {
+        "desel" => {
             session.selection.clear();
             Ok("Selection cleared.".to_owned())
+        }
+        "sel" => {
+            let Some(word) = args.get(1).copied() else {
+                session.selection.clear();
+                return Ok("Selection cleared.".to_owned());
+            };
+            let Some(shape) = Shape::parse(word) else {
+                return Err(format!(
+                    "`{word}` is not a shape (cube, sphere, cylinder, ellipsoid)."
+                ));
+            };
+            let sizes: Vec<i32> = args[2..].iter().filter_map(|a| a.parse().ok()).collect();
+            session.selection.dimension = dimension.clone();
+            if sizes.is_empty() {
+                // The shape for the corners the player sets next.
+                session.selection.shape = shape;
+                // With the corners already set, the shape applies to them at once.
+                if let Some(r) = session.selection.region() {
+                    return Ok(describe(&r));
+                }
+                return Ok(format!(
+                    "The selection is a {} now. Set its corners with /we pos1 and /we pos2.",
+                    shape.name()
+                ));
+            }
+            let c = Region::around(shape, origin, &sizes)?;
+            session.selection.set_region(&c);
+            Ok(describe(&c))
+        }
+        "chunkinfo" => {
+            let chunk = we_core::chunk_of(origin);
+            let filled = {
+                let w = GameWorld {
+                    game,
+                    dimension: dimension.clone(),
+                };
+                we_core::chunk_filled(&w, chunk, -64, 319, air)
+            };
+            Ok(format!(
+                "Chunk [{}, {}] at {}..{}, {}..{} (y -64..319): {filled} blocks that are not air.",
+                chunk.0,
+                chunk.1,
+                chunk.0 * 16,
+                chunk.0 * 16 + 15,
+                chunk.1 * 16,
+                chunk.1 * 16 + 15
+            ))
+        }
+        "listchunks" => {
+            let c = region(session, player)?;
+            let chunks = we_core::chunks_of(&c);
+            let shown: Vec<String> = chunks
+                .iter()
+                .take(64)
+                .map(|(cx, cz)| format!("[{cx}, {cz}]"))
+                .collect();
+            let mut line = format!(
+                "{} chunks in the selection: {}",
+                chunks.len(),
+                shown.join(", ")
+            );
+            if chunks.len() > shown.len() {
+                line.push_str(" ...");
+            }
+            Ok(line)
         }
         "size" => Ok(describe(&region(session, player)?)),
         "expand" | "contract" | "shift" => {
@@ -496,7 +572,7 @@ fn run(
                 }
             }
             .ok_or_else(|| "The selection would be empty.".to_owned())?;
-            session.selection.set_cuboid(next);
+            session.selection.set_region(&next);
             Ok(describe(&next))
         }
         "set" | "walls" | "faces" => {
@@ -620,7 +696,7 @@ fn run(
                 we_core::trim_to_existing(&w, &c, air)
             }
             .ok_or_else(|| "The selection holds nothing but air.".to_owned())?;
-            session.selection.set_cuboid(trimmed);
+            session.selection.set_region(&trimmed);
             Ok(describe(&trimmed))
         }
         "distr" => {
@@ -735,7 +811,7 @@ fn run(
                 let v = dir.vector();
                 session
                     .selection
-                    .set_cuboid(c.shifted([v[0] * n, v[1] * n, v[2] * n]));
+                    .set_region(&c.shifted([v[0] * n, v[1] * n, v[2] * n]));
             }
             Ok(format!("{changed} blocks changed."))
         }
@@ -782,7 +858,7 @@ pub fn wand_click(game: &mut Game<'_>, index: u8, pos: [i32; 3]) -> bool {
     let size = with_sessions(|sessions| {
         let selection = &mut sessions.get(player.uuid).selection;
         selection.set_pos(index, &player.dimension, pos);
-        selection.cuboid().map(|c| c.volume())
+        selection.region().map(|c| c.volume())
     });
     let mut line = format!("Position {index} set to {pos:?}");
     if let Some(volume) = size {

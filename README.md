@@ -8,7 +8,10 @@
 **A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
 **Мод в духе WorldEdit для клиента [Horizon](https://playhorizon.dev) — нативный мод (`.hnmod`)**
 
-![version](https://img.shields.io/badge/version-0.8.0-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v24-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
+<<<<<<< HEAD
+=======
+![version](https://img.shields.io/badge/version-0.9.0-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v24-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
+>>>>>>> 8331f18 (Add selection shapes and chunk commands (0.9.0))
 
 </div>
 
@@ -23,6 +26,8 @@
 - 🕳️ **Digging** — `/we fill` and `/we fillr` fill the hole around you, `/we removeabove` and `/we removebelow` clear a column up or down. / **Копка** — `/we fill` и `/we fillr` заливают дыру вокруг вас, `/we removeabove` и `/we removebelow` чистят столб вверх или вниз.
 - 🧱 **Fill, replace, walls, faces, hollow, overlay, naturalize, line** / заливка, замена, стены, грани, выдалбливание, слой сверху, натурализация, линия.
 - ⚪ **Shapes** — spheres, cylinders, pyramids, solid or hollow (`hcyl`, `hsphere`, `hpyramid`). / **Фигуры** — шары, цилиндры, пирамиды, сплошные и полые.
+- 🔷 **Shapes for the selection** — `/we sel sphere 5`, `/we sel cylinder 3 4`, `/we sel ellipsoid 4 2 4`: the selection becomes a ball, a cylinder or an ellipsoid instead of a box. / **Форма выделения** — `/we sel sphere 5`, `/we sel cylinder 3 4`, `/we sel ellipsoid 4 2 4`: выделение становится шаром, цилиндром или эллипсоидом вместо коробки.
+- 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers. / **Чанки** — `/we chunkinfo` расскажет о чанке под вами, `/we listchunks` покажет чанки выделения.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`. / **Рельеф и жидкости**.
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move. / **Буфер обмена**.
 - ↩️ **Undo / redo** with configurable history. / **Отмена и возврат** с настраиваемой историей.
@@ -59,6 +64,7 @@
 /we set 0                   # delete / удалить
 /we expand 5                # grow where you look / расширить туда, куда смотрите
 /we hcyl stone 5 3          # hollow cylinder r=5 h=3 / полый цилиндр
+/we sel sphere 5            # a round selection / круглое выделение
 /we undo                    # undo / отмена
 ```
 
@@ -84,6 +90,7 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we trim` | Ужать выделение до блоков, которые там действительно есть | Trim the selection down to the blocks that are really there |
 | `/we distr` | Показать, из чего состоит выделение и сколько чего | Show what the selection holds and how much of it |
 | `/we sel` (или `desel`) | Снять выделение | Clear the selection |
+| `/we sel <фигура> [размеры]` | Форма выделения: `cube`, `sphere`, `cylinder`, `ellipsoid`. С числами — объём сразу вокруг вас, без чисел — по углам `pos1`/`pos2` | Shape of the selection: `cube`, `sphere`, `cylinder`, `ellipsoid`. With sizes the shape appears around you at once, without them it follows the `pos1`/`pos2` corners |
 | `/we size` | Показать размеры и число блоков выделения | Show selection size and block count |
 | `/we expand <n> [direction]` | Расширить выделение на n блоков. Без направления — туда, куда вы смотрите | Grow the selection by n blocks. No direction = the way you look |
 | `/we contract <n> [direction]` | Сжать выделение с этой стороны | Shrink the selection from that side |
@@ -93,6 +100,25 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we shift <n> [direction]` | Сдвинуть выделение целиком | Move the selection itself |
 
 Направления / Directions: `north south east west up down` (`n s e w u d`).
+
+## Форма выделения / Selection shape
+
+`/we sel <фигура> [размеры]` меняет форму выделения: обычная коробка (`cube`) или круглая фигура внутри неё.
+
+- **RU:** с числами объём появляется вокруг вас: `/we sel sphere 5` — шар радиуса 5, `/we sel cylinder 3 4` — цилиндр радиуса 3 и высотой 4, `/we sel ellipsoid 4 2 4` — эллипсоид с такими радиусами, `/we sel cube 5` — куб 5×5×5. Без чисел форма ждёт углов: `/we pos1` и `/we pos2`, потом `/we sel sphere`.
+- **EN:** with sizes the volume appears around you: `/we sel sphere 5` — a ball of radius 5, `/we sel cylinder 3 4` — a cylinder of radius 3 and height 4, `/we sel ellipsoid 4 2 4` — an ellipsoid with those radii, `/we sel cube 5` — a 5×5×5 cube. Without sizes the shape waits for the corners: `/we pos1` and `/we pos2`, then `/we sel sphere`.
+
+Как считаются размеры / How the sizes work:
+
+- **RU:** куб — сторона; сфера — радиус, центр в первом углу; цилиндр — радиус по горизонтали и высота рядами, низ в первом углу; эллипсоид — три радиуса, центр в первом углу.
+- **EN:** a cube is its side; a sphere is a radius with its middle in the first corner; a cylinder is a horizontal radius and a height in rows, its bottom in the first corner; an ellipsoid is three radii with its middle in the first corner.
+
+## Чанки / Chunks
+
+| Команда / Command | RU | EN |
+|---|---|---|
+| `/we chunkinfo` | Чанк, где вы стоите, и сколько в нём блоков (высота -64..319) | The chunk you stand in and how many blocks it holds (height -64..319) |
+| `/we listchunks` | Список чанков, которые покрывает выделение | The chunks the selection covers |
 
 ## Изменение блоков / Editing
 

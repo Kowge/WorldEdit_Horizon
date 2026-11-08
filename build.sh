@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-# Упаковывает исходники в WorldEdit-мод: dist/worldedit-<version>.hnmod
+# Упаковывает исходники в WorldEdit-мод:
+# worldedit-horizon/target/worldedit_horizon-<version>.hnmod
+# Сборку пакета делает tools/package.py — там же собирается манифест.
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/worldedit-horizon"
 
-VERSION=$(grep -m1 '"version"' horizon-native.json | sed -E 's/.*"version": *"([^"]+)".*/\1/')
-OUT="dist/worldedit-${VERSION}.hnmod"
-
-mkdir -p dist
-rm -f "$OUT"
-zip -X -r "$OUT" horizon-native.json mixins
-echo "Готово: $OUT"
+python3 tools/package.py

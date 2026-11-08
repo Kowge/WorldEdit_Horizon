@@ -13,9 +13,11 @@ Creative mode **and** operator permission only: every `/we` command and the wand
 
 Every command is under `/we`: `/we set stone`, `/we copy`, `/we undo`. The server cuts the slashes off a command line, so `//we set stone` runs the same command, but the game marks the double slash as an unknown name in the chat box — write it with one slash.
 
-- **Selection:** wooden axe wand (left click = first corner, right click = second), `wand`, `pos1`, `pos2`, `pos`, `hpos1`, `hpos2`, `sel`, `size`, `trim`, `distr`, `expand`/`contract`/`shift`/`outset`/`inset`, `chunk`
+- **Selection:** wooden axe wand (left click = first corner, right click = second), `wand`, `pos1`, `pos2`, `pos`, `hpos1`, `hpos2`, `sel`, `sel <shape> [sizes]`, `size`, `trim`, `distr`, `expand`/`contract`/`shift`/`outset`/`inset`, `chunk`
 - **Edit:** `set`, `replace`, `overlay`, `naturalize`, `walls`, `faces`, `hollow`, `line`, `count`, `smooth`, `fill`, `fillr`, `removeabove`, `removebelow`, `drain`, `fixwater`, `fixlava`
 - **Shapes:** `sphere`/`hsphere`, `cyl`/`hcyl`, `pyramid`/`hpyramid`
+- **Selection shapes:** `sel cube`, `sel sphere`, `sel cylinder`, `sel ellipsoid` — the selection becomes a box, a ball, a tube or an ellipsoid; with sizes the volume appears around the player at once, without them it follows the two corners
+- **Chunks:** `chunkinfo` (the chunk under you and how many blocks it holds), `listchunks` (the chunks the selection covers)
 - **Clipboard:** `copy`, `cut`, `paste [skipair]`, `rot`, `flip`, `stack`, `move`, `clearclipboard`
 - **History and limits:** `undo`, `redo`, `physics [on|off]`, `limit`
 
