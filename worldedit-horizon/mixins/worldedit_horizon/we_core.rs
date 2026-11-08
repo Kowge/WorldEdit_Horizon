@@ -1933,6 +1933,125 @@ impl Clipboard {
     }
 }
 
+/// The magic at the start of a schematic file.
+const SCHEMATIC_MAGIC: &[u8; 4] = b"WEHS";
+/// The format of a schematic file this version writes and reads.
+const SCHEMATIC_FORMAT: u32 = 1;
+/// The bytes of the header of a schematic file: the magic, the format, the
+/// size of the box and the number of blocks.
+const SCHEMATIC_HEADER: usize = 24;
+
+/// The name of a schematic: only the characters that cannot leave the
+/// schematics folder.
+pub fn schematic_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("The schematic needs a name.".to_owned());
+    }
+    if name.len() > 48 {
+        return Err("The name is too long: 48 characters at most.".to_owned());
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err("The name may hold letters, digits, `_` and `-` only.".to_owned());
+    }
+    Ok(name.to_owned())
+}
+
+/// A saved build: its blocks, relative to the lowest corner of the region it
+/// was taken from.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Schematic {
+    /// The blocks of the build, relative to the region's lowest corner.
+    pub blocks: Vec<(Pos, u32)>,
+    /// The size of the region the build was taken from.
+    pub size: [i32; 3],
+}
+
+impl Schematic {
+    /// The build of `region`, as it is read from `world`.
+    pub fn of<W: World>(world: &W, region: &Region) -> Schematic {
+        let min = region.min;
+        Schematic {
+            blocks: region
+                .positions()
+                .into_iter()
+                .map(|p| (sub(p, min), world.get(p)))
+                .collect(),
+            size: region.size(),
+        }
+    }
+    /// The clipboard that pastes this build: its lowest corner goes where
+    /// the player stands.
+    pub fn to_clipboard(&self) -> Clipboard {
+        Clipboard {
+            blocks: self.blocks.clone(),
+        }
+    }
+    /// The bytes of the file: the header, then every block.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(SCHEMATIC_HEADER + self.blocks.len() * 16);
+        out.extend_from_slice(SCHEMATIC_MAGIC);
+        out.extend_from_slice(&SCHEMATIC_FORMAT.to_le_bytes());
+        for s in self.size {
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+        out.extend_from_slice(&(self.blocks.len() as u32).to_le_bytes());
+        for (p, block) in &self.blocks {
+            for v in p {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            out.extend_from_slice(&block.to_le_bytes());
+        }
+        out
+    }
+    /// The build of a file, as it was written.
+    pub fn decode(data: &[u8]) -> Result<Schematic, String> {
+        if data.len() < SCHEMATIC_HEADER {
+            return Err("The file is too short to be a schematic.".to_owned());
+        }
+        if &data[0..4] != SCHEMATIC_MAGIC {
+            return Err("This is not a WorldEdit schematic.".to_owned());
+        }
+        let format = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+        if format != SCHEMATIC_FORMAT {
+            return Err(format!("The schematic's format {format} is not known."));
+        }
+        let mut size = [0i32; 3];
+        for (i, s) in size.iter_mut().enumerate() {
+            let at = 8 + i * 4;
+            *s = i32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]);
+        }
+        if size.iter().any(|s| *s <= 0) {
+            return Err("The schematic's size is not right.".to_owned());
+        }
+        let count = u32::from_le_bytes([data[20], data[21], data[22], data[23]]) as usize;
+        if count.checked_mul(16) != Some(data.len() - SCHEMATIC_HEADER) {
+            return Err("The schematic is cut short.".to_owned());
+        }
+        if count as u64 > max_blocks() {
+            return Err("The schematic holds more blocks than the limit allows.".to_owned());
+        }
+        let mut blocks = Vec::with_capacity(count);
+        for i in 0..count {
+            let at = SCHEMATIC_HEADER + i * 16;
+            let p = [
+                i32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]),
+                i32::from_le_bytes([data[at + 4], data[at + 5], data[at + 6], data[at + 7]]),
+                i32::from_le_bytes([data[at + 8], data[at + 9], data[at + 10], data[at + 11]]),
+            ];
+            let block = u32::from_le_bytes([data[at + 12], data[at + 13], data[at + 14], data[at + 15]]);
+            if (0..3).any(|k| p[k] < 0 || p[k] >= size[k]) {
+                return Err("The schematic holds a block outside its box.".to_owned());
+            }
+            blocks.push((p, block));
+        }
+        Ok(Schematic { blocks, size })
+    }
+}
+
 /// The writes of `stack`: the region repeated `times` along `dir`.
 pub fn stack_writes<W: World>(
     world: &W,
@@ -2301,6 +2420,50 @@ mod tests {
         assert!(clip.rotate(45).is_err());
         let e = apply(&mut w, clip.writes([20, 0, 0], None));
         assert_eq!(e.len(), 1);
+    }
+
+    #[test]
+    fn schematics_are_saved_and_read_back() {
+        let mut w = Map::default();
+        w.0.insert([1, 0, 0], 7);
+        w.0.insert([1, 1, 0], 9);
+        let c = Region::cube([1, 0, 0], [2, 1, 1]);
+        let s = Schematic::of(&w, &c);
+        assert_eq!(s.size, [2, 2, 2]);
+        assert!(s.blocks.contains(&([0, 0, 0], 7)));
+        assert!(s.blocks.contains(&([0, 1, 0], 9)));
+        let data = s.encode();
+        let back = Schematic::decode(&data).unwrap();
+        assert_eq!(back, s);
+        // The clipboard pastes the build where the player stands.
+        let clip = back.to_clipboard();
+        assert!(clip.writes([10, 0, 10], None).contains(&([10, 0, 10], 7)));
+    }
+
+    #[test]
+    fn broken_schematics_are_refused() {
+        let mut w = Map::default();
+        w.0.insert([0, 0, 0], 1);
+        let s = Schematic::of(&w, &Region::cube([0, 0, 0], [0, 0, 0]));
+        let data = s.encode();
+        assert!(Schematic::decode(&[]).is_err());
+        assert!(Schematic::decode(b"not a schematic at all, but long").is_err());
+        assert!(Schematic::decode(&data[..data.len() - 1]).is_err());
+        // A block outside the box is refused.
+        let mut bad = data.clone();
+        bad[24..28].copy_from_slice(&99i32.to_le_bytes());
+        assert!(Schematic::decode(&bad).is_err());
+    }
+
+    #[test]
+    fn schematic_names_stay_in_their_folder() {
+        assert_eq!(schematic_name("house").unwrap(), "house");
+        assert_eq!(schematic_name(" my_house-2 ").unwrap(), "my_house-2");
+        assert!(schematic_name("").is_err());
+        assert!(schematic_name("../secret").is_err());
+        assert!(schematic_name("a/b").is_err());
+        assert!(schematic_name("a\\b").is_err());
+        assert!(schematic_name(&"x".repeat(49)).is_err());
     }
 
     #[test]

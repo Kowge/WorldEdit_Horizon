@@ -10,16 +10,19 @@ use crate::game::{
         self, Clipboard, Dir, Pattern, Pos, Region, Session, Sessions, Shape, World,
     },
 };
+use crate::mod_api::Host;
 use horizon_client::text::{self, Text};
 use horizon_world::registry::BlockStateId;
 use std::collections::HashSet;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "1.1.0";
+pub const VERSION: &str = "1.2.0";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
@@ -204,6 +207,7 @@ const USAGES: &[&str] = &[
     "we rot <degrees:integer>",
     "we flip [direction:word]",
     "we clearclipboard",
+    "we schematic [args:text]",
     "we stack <count:integer> [direction:word]",
     "we move <distance:integer> [direction:word]",
     "we undo [times:integer]",
@@ -223,7 +227,7 @@ wand | brush <shape> [sizes] <pattern> | brush radius <n> | brush distance <n> (
 expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
-clearclipboard | stack <n> <dir> | move <n> <dir> | undo [n] | redo [n] | physics [on|off] | drain | fixwater | fixlava | smooth [n] | limit [blocks|radius|distance|history <n>|reset]. \
+clearclipboard | schematic save|load|list|delete <name> (the build of the selection, kept in a file of the world's folder; /we paste puts it down) | stack <n> <dir> | move <n> <dir> | undo [n] | redo [n] | physics [on|off] | drain | fixwater | fixlava | smooth [n] | limit [blocks|radius|distance|history <n>|reset]. \
 Patterns: stone, 50%stone,dirt. Directions: north south east west up down.";
 
 /// A player's command, when it is WorldEdit's.
@@ -1062,6 +1066,7 @@ fn run(
             session.clipboard = None;
             Ok("Clipboard cleared.".to_owned())
         }
+        "schematic" => schematic(game, player, session, args),
         "stack" | "move" => {
             let n = number(args, 1)?;
             let dir = direction(args, 2, player)?;
@@ -1104,6 +1109,95 @@ fn run(
             }
         }
         other => Err(format!("Unknown WorldEdit command `{other}` (/we).")),
+    }
+}
+
+/// The folder the schematics live in: the world's own folder, so that the
+/// world's backups carry them.
+fn schematic_dir(game: &Game<'_>) -> Result<PathBuf, String> {
+    let root = game
+        .world_dir()
+        .ok_or_else(|| "No world is open.".to_owned())?;
+    Ok(root.join("worldedit_horizon").join("schematics"))
+}
+
+/// `/we schematic save|load|list|delete`: the build of the selection, kept
+/// in a file of the world's folder.
+fn schematic(
+    game: &mut Game<'_>,
+    player: &NativeServerPlayer,
+    session: &mut Session,
+    args: &[&str],
+) -> Result<String, String> {
+    let dir = schematic_dir(game)?;
+    match args.get(1).copied() {
+        Some("save") => {
+            let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
+            let c = region(session, player)?;
+            we_core::check_limit(c.volume())?;
+            let build = {
+                let reader = GameReader { game: &*game };
+                we_core::Schematic::of(&reader, &c)
+            };
+            let blocks = build.blocks.len();
+            fs::create_dir_all(&dir).map_err(|e| format!("The schematics folder cannot be made: {e}"))?;
+            let path = dir.join(format!("{name}.wehs"));
+            fs::write(&path, build.encode()).map_err(|e| format!("The schematic cannot be written: {e}"))?;
+            Ok(format!("Schematic `{name}` saved: {blocks} blocks."))
+        }
+        Some("load") => {
+            let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
+            let path = dir.join(format!("{name}.wehs"));
+            let data = fs::read(&path)
+                .map_err(|_| format!("There is no schematic called `{name}`."))?;
+            let build = we_core::Schematic::decode(&data)?;
+            we_core::check_limit(build.blocks.len() as u64)?;
+            let blocks = build.blocks.len();
+            session.clipboard = Some(build.to_clipboard());
+            Ok(format!(
+                "Schematic `{name}` loaded: {blocks} blocks. Put it down with /we paste."
+            ))
+        }
+        Some("list") => {
+            let mut found: Vec<(String, usize)> = Vec::new();
+            if dir.exists() {
+                let entries =
+                    fs::read_dir(&dir).map_err(|e| format!("The schematics cannot be read: {e}"))?;
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()) != Some("wehs") {
+                        continue;
+                    }
+                    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                        continue;
+                    };
+                    let count = fs::read(&path)
+                        .ok()
+                        .and_then(|data| we_core::Schematic::decode(&data).ok())
+                        .map_or(0, |build| build.blocks.len());
+                    found.push((stem.to_owned(), count));
+                }
+            }
+            if found.is_empty() {
+                return Ok("There are no schematics yet.".to_owned());
+            }
+            found.sort();
+            let lines: Vec<String> = found
+                .iter()
+                .map(|(name, count)| format!("{name} ({count} blocks)"))
+                .collect();
+            Ok(format!("{} schematics: {}.", found.len(), lines.join(", ")))
+        }
+        Some("delete") => {
+            let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
+            let path = dir.join(format!("{name}.wehs"));
+            if !path.exists() {
+                return Err(format!("There is no schematic called `{name}`."));
+            }
+            fs::remove_file(&path).map_err(|e| format!("The schematic cannot be deleted: {e}"))?;
+            Ok(format!("Schematic `{name}` deleted."))
+        }
+        _ => Err("Usage: /we schematic save|load|list|delete <name>".to_owned()),
     }
 }
 
