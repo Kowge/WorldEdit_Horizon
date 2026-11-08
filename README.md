@@ -10,7 +10,7 @@ markdown
 **A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
 **Мод в духе WorldEdit для клиента [Horizon](https://playhorizon.dev) — нативный мод (`.hnmod`)**
 
-![version](https://img.shields.io/badge/version-0.6.0-blue) ![game](https://img.shields.io/badge/Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v24-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange)
+![version](https://img.shields.io/badge/version-0.6.1-blue) ![game](https://img.shields.io/badge/Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v24-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange)
 
 </div>
 
