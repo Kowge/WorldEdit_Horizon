@@ -255,12 +255,21 @@ Limits are shared by all players and reset when the game restarts; only an opera
 
 ## 🛠 Building
 
-Built as a Horizon native mod (mixin bundle). Logic lives in `we_core.rs` (pure Rust, unit-tested with `cargo test`), game glue in `glue.rs`, and the drawing of the selection in `geometry.rs` and `render.rs`.
+Built as a Horizon native mod (mixin bundle). Logic lives in `we_core.rs` (pure Rust, unit-tested), game glue in `glue.rs`, and the drawing of the selection in `geometry.rs` and `render.rs`.
+
+The rules are a crate of their own, so they can be tested without the game:
 
 ```bash
-python3 native/tools/native.py check worldedit     # check against Horizon source
-python3 native/tools/native.py package worldedit   # produce worldedit-<version>.hnmod
+cargo test --manifest-path worldedit-horizon/core-test/Cargo.toml
 ```
+
+The package the launcher takes is built from the same sources:
+
+```bash
+python3 worldedit-horizon/tools/package.py
+```
+
+Every push runs the tests and builds the package; every release adds the package and its provenance to the release.
 
 ## 📄 License
 
