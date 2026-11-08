@@ -31,7 +31,11 @@ The selection is drawn where you look: a frame around the box of the selection a
 
 ## Brushes
 
-`/we brush sphere 5 stone` arms a brush for the player: the wand's left click then paints the brush's shape on the clicked block, in the middle of it, and its right click erases the same shape with air. The shapes are the selection's own (`sphere <radius>`, `cylinder <radius> <height>`, `cube <side>`, `ellipsoid <rx> <ry> <rz>`) and the pattern a block or a mix, as everywhere else (`stone`, `30%stone,dirt`, `0` for air). `/we brush radius <n>` sets the radius of the armed brush and `/we brush radius +1` grows it, so the reach grows without retyping the brush. `/we brush distance <n>` makes the brush work `n` blocks ahead of the player along the view instead of on the clicked block, and `/we brush at` paints at once at the block under the view, up to 64 blocks away (`/we brush erase at` erases there). The brush belongs to the player alone: `/we brush` says which one is armed and `/we brush off` puts it away, so the wand selects the corners again. A stroke is one edit in the history, so `/we undo` takes it back.
+`/we brush sphere 5 stone` arms a brush for the player: the wand's left click then paints the brush's shape on the clicked block, in the middle of it, and its right click erases the same shape with air. The shapes are the selection's own (`sphere <radius>`, `cylinder <radius> <height>`, `cube <side>`, `ellipsoid <rx> <ry> <rz>`) and the pattern a block or a mix, as everywhere else (`stone`, `30%stone,dirt`, `0` for air). `/we brush radius <n>` sets the radius of the armed brush and `/we brush radius +1` grows it, so the reach grows without retyping the brush.
+
+`/we brush distance <n>` makes the brush work along the line of sight instead of on the clicked block: it paints every block from the player's eyes to the first one that is not air, so the wand cuts a tunnel into whatever it looks at. Where there is nothing at all — the sky — the brush's shape goes `n` blocks ahead, so blocks can be put up in the air. Both the left click (paint) and the right click (erase) work that way, and `/we brush at` paints along the same line at once, `/we brush erase at` erases there.
+
+The brush belongs to the player alone: `/we brush` says which one is armed and `/we brush off` puts it away, so the wand selects the corners again. A stroke is one edit in the history, so `/we undo` takes it back.
 
 ## Install
 

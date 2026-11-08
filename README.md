@@ -25,7 +25,7 @@
 - 🔷 **Shapes for the selection** — `/we sel sphere 5`, `/we sel cylinder 3 4`, `/we sel ellipsoid 4 2 4`: the selection becomes a ball, a cylinder or an ellipsoid instead of a box.
 - 🟥 **The selection is drawn for you** — a red frame around the box and a grid inside it, one cell per block. A round shape is drawn as the blocks it covers, so the outline stands on the blocks the command would change (like F3+B). The lines are drawn over everything, so the terrain does not hide the selection.
 - 🔲 **Your own view** — `/we grid on` and `/we grid off` turn the grid inside the selection off and on; the frame stays. The setting is yours alone.
-- 🖌 **Brushes** — `/we brush sphere 5 stone` arms a brush: the wand's left click paints its shape on the block you click. `/we brush off` puts the wand back to selecting corners.
+- 🖌 **Brushes** — `/we brush sphere 5 stone` arms a brush: the wand's left click paints its shape on the block you click, or along your view when a distance is set. `/we brush off` puts the wand back to selecting corners.
 - 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`.
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move.
@@ -89,8 +89,8 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we grid on` / `/we grid off` | The grid inside the selection: on or off. The frame always stays. Your setting alone |
 | `/we brush <shape> [sizes] <pattern>` | Arm a brush: the wand's left click paints it on the block you click, the right click erases it. `/we brush off` puts it away |
 | `/we brush radius <n>` | The radius of the armed brush: `7` sets it, `+1` grows it, `-1` shrinks it |
-| `/we brush distance <n>` | How far ahead of you the brush works, along your view: `20` reaches 20 blocks away, `off` puts it back |
-| `/we brush at` | Paint now at the block under your view (up to 64 blocks away). `/we brush erase at` erases there |
+| `/we brush distance <n>` | The brush works along your view, up to the first block: `20` reaches 20 blocks away and, in the sky, puts the brush that far ahead. `off` puts it back |
+| `/we brush at` | Paint now along your view, up to the first block (64 blocks away). `/we brush erase at` erases there |
 | `/we size` | Show selection size and block count |
 | `/we expand <n> [direction]` | Grow the selection by n blocks. No direction = the way you look |
 | `/we contract <n> [direction]` | Shrink the selection from that side |
@@ -120,8 +120,8 @@ How the sizes work:
 - The shapes are the selection's own: `sphere <radius>`, `cylinder <radius> <height>`, `cube <side>`, `ellipsoid <rx> <ry> <rz>`.
 - The pattern is a block or a mix, as everywhere else: `stone`, `30%stone,dirt`, and `0` for air.
 - `/we brush radius 7` sets the radius of the armed brush, `/we brush radius +1` grows it and `/we brush radius -1` shrinks it, so you can reach further without retyping the whole brush. A radius of 0 paints the single block you click.
-- **Work from far away**: `/we brush distance 20` makes the brush work 20 blocks ahead of you, along the line of sight, instead of on the block you click. `/we brush distance off` puts it back.
-- `/we brush at` paints right now at the block under your view — up to 64 blocks away — without a click; `/we brush erase at` erases there.
+- **Work along your view**: `/we brush distance 20` makes the brush work along the line of sight instead of on the block you click: it paints every block from your eyes to the first one that is not air, so the wand cuts a tunnel into whatever you look at. Where there is nothing at all — the sky — the brush's shape goes 20 blocks ahead, so you can put blocks up in the air. Both buttons work that way: the left click paints, the right click erases. `/we brush distance off` puts it back.
+- `/we brush at` paints right now along the same line, without a click; `/we brush erase at` erases there.
 - The brush belongs to you alone. `/we brush` says which one is armed, `/we brush off` puts it away and the wand selects the corners again.
 - A stroke is one edit: `/we undo` takes it back.
 
@@ -229,7 +229,7 @@ Limits are shared by all players and reset when the game restarts; only an opera
 
 ## ⚠️ Known limitations
 
-- `regen`, brushes and schematics are not implemented.
+- `regen` and schematics are not implemented.
 - `rotate` is named `/we rot` because vanilla already has `/rotate`.
 - Block orientation (`facing`) is not rotated by `rot` / `flip`.
 - Limits, physics mode and history are not saved between game launches.

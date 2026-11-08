@@ -1,4 +1,5 @@
-// A message from a client: the wand's click, which the server checks.
+// A message from a client: the wand's click, which the server checks, and the
+// brush's click in the air.
 fn we_net_from_client(
     game: &mut crate::game::Game<'_>,
     player: u128,
@@ -7,5 +8,8 @@ fn we_net_from_client(
 ) {
     if channel == crate::game::we_core::WAND_CHANNEL {
         crate::game::we_glue::wand_message(game, player, data);
+    }
+    if channel == crate::game::we_core::BRUSH_CHANNEL {
+        crate::game::we_glue::brush_message(game, player, data);
     }
 }

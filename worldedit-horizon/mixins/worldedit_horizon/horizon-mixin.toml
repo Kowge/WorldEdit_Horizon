@@ -27,6 +27,13 @@ file = "crates/horizon-client/src/game.rs"
 name = "we_geometry"
 source = "geometry.rs"
 
+# The client's half: the brush's clicks in the air.
+[[module]]
+id = "brush_client"
+file = "crates/horizon-client/src/game.rs"
+name = "we_brush_client"
+source = "brush_client.rs"
+
 # The client's half: the selection the server sent and the lines it is drawn
 # with.
 [[module]]
@@ -75,6 +82,32 @@ helper = "right_click.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+# The wand's right click in the air: the brush erases along the line of sight.
+[[injection]]
+id = "use_item"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_use_item"
+helper = "use_item.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
+  { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
+]
+
+# The left mouse button: the click in the air, where there is no block.
+[[injection]]
+id = "mouse"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_mouse_button_pre"
+helper = "mouse_helper.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "button", ty = "i32", value = "button" },
+  { name = "pressed", ty = "bool", value = "pressed" },
+  { name = "_modifiers", ty = "u32", value = "modifiers" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]
 

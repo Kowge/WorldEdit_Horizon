@@ -797,6 +797,23 @@ pub const SEL_CHANNEL: &str = "worldedit_horizon:sel";
 /// The channel the wand's clicks travel to the server on (`mod_id:name`).
 pub const WAND_CHANNEL: &str = "worldedit_horizon:wand";
 
+/// The channel the brush's clicks in the air travel to the server on.
+pub const BRUSH_CHANNEL: &str = "worldedit_horizon:brush";
+
+/// A brush's click in the air: whether it erases.
+pub fn brush_payload(erase: bool) -> Vec<u8> {
+    vec![u8::from(erase)]
+}
+
+/// The click of a brush in the air. None when the message is broken.
+pub fn parse_brush(data: &[u8]) -> Option<bool> {
+    match data.first()? {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
+}
+
 /// A wand's click: the block it was made on, three little-endian coordinates.
 pub fn wand_payload(pos: Pos) -> Vec<u8> {
     let mut out = Vec::with_capacity(12);
@@ -1116,6 +1133,83 @@ pub fn ahead(eye: [f64; 3], dir: [f64; 3], distance: f64) -> Pos {
     ]
 }
 
+/// What a ray found: the blocks it went through and whether it ended on a
+/// block that is not air.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Ray {
+    /// The blocks the ray went through, in order. The block the eye is in is
+    /// not among them.
+    pub blocks: Vec<Pos>,
+    /// Whether the ray ended on a block that is not air: it hit something.
+    pub solid: bool,
+}
+
+/// The blocks a ray goes through from the eye along `dir`, up to `distance`
+/// blocks away. It stops at the first block that is not air, and that block is
+/// the last one. When it hits nothing, it goes on to the distance.
+pub fn ray_blocks(
+    world: &impl World,
+    eye: [f64; 3],
+    dir: [f64; 3],
+    distance: f64,
+    air: u32,
+) -> Ray {
+    let mut blocks = Vec::new();
+    if distance <= 0.0 {
+        return Ray {
+            blocks,
+            solid: false,
+        };
+    }
+    let mut pos = [
+        eye[0].floor() as i32,
+        eye[1].floor() as i32,
+        eye[2].floor() as i32,
+    ];
+    // On every axis: the way the ray goes, the length of one block on it and
+    // where the next block starts.
+    let mut step = [0i32; 3];
+    let mut delta = [f64::INFINITY; 3];
+    let mut next = [f64::INFINITY; 3];
+    for i in 0..3 {
+        if dir[i] > 0.0 {
+            step[i] = 1;
+            delta[i] = 1.0 / dir[i];
+            next[i] = (f64::from(pos[i]) + 1.0 - eye[i]) / dir[i];
+        } else if dir[i] < 0.0 {
+            step[i] = -1;
+            delta[i] = -1.0 / dir[i];
+            next[i] = (f64::from(pos[i]) - eye[i]) / dir[i];
+        }
+    }
+    let mut solid = false;
+    loop {
+        // The next block the ray reaches.
+        let t = next[0].min(next[1]).min(next[2]);
+        if !t.is_finite() || t > distance {
+            break;
+        }
+        // The axis the ray crosses first.
+        if next[0] <= next[1] && next[0] <= next[2] {
+            pos[0] += step[0];
+            next[0] += delta[0];
+        } else if next[1] <= next[2] {
+            pos[1] += step[1];
+            next[1] += delta[1];
+        } else {
+            pos[2] += step[2];
+            next[2] += delta[2];
+        }
+        blocks.push(pos);
+        // The first block that is not air ends the ray.
+        if world.get(pos) != air {
+            solid = true;
+            break;
+        }
+    }
+    Ray { blocks, solid }
+}
+
 /// A brush: the shape it leaves and the pattern it paints with.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Brush {
@@ -1252,6 +1346,44 @@ impl Brush {
         }
     }
 
+    /// How many blocks the brush's shape takes.
+    pub fn shape_volume(&self) -> u64 {
+        match self.shape {
+            Shape::Cube => {
+                let side = self.sizes[0] as u64;
+                side * side * side
+            }
+            Shape::Sphere => {
+                let r = self.sizes[0] as u64;
+                (2 * r + 1).pow(3)
+            }
+            Shape::Cylinder => {
+                let (radius, height) = (self.sizes[0] as u64, self.sizes[1] as u64);
+                (2 * radius + 1) * (2 * radius + 1) * height
+            }
+            Shape::Ellipsoid => {
+                let [rx, ry, rz] = self.sizes.map(|s| s as u64);
+                (2 * rx + 1) * (2 * ry + 1) * (2 * rz + 1)
+            }
+        }
+    }
+
+    /// The blocks the brush covers when it is dragged along `path`: its shape
+    /// on every block of the path.
+    pub fn stroke_positions(&self, path: &[Pos]) -> Result<Vec<Pos>, String> {
+        // The limit is checked before the blocks are built: a long path with a
+        // big brush must not cost a big allocation.
+        check_limit(path.len() as u64 * self.shape_volume())?;
+        let mut out = Vec::new();
+        for center in path {
+            out.extend(self.positions(*center)?);
+        }
+        // A block can be covered twice: once for every block of the path.
+        out.sort_unstable();
+        out.dedup();
+        Ok(out)
+    }
+
     /// The brush's radius: a sphere's and a cylinder's radius, a cube's half
     /// side, an ellipsoid's longest radius.
     pub fn radius(&self) -> i32 {
@@ -1319,7 +1451,7 @@ impl Brush {
         };
         let mut out = format!("{shape}, {}", self.text);
         if let Some(distance) = self.distance {
-            out.push_str(&format!(", {distance} blocks ahead"));
+            out.push_str(&format!(", {distance} blocks along the view"));
         }
         out
     }
@@ -2487,12 +2619,64 @@ mod tests {
         assert_eq!(b.distance, None);
         let far = b.with_distance(Some(20)).unwrap();
         assert_eq!(far.distance, Some(20));
-        assert!(far.describe().contains("20 blocks ahead"));
+        assert!(far.describe().contains("20 blocks along the view"));
         // The distance stays when the size changes.
         assert_eq!(far.with_radius(3).unwrap().distance, Some(20));
         // And it can be taken away again.
         assert_eq!(far.with_distance(None).unwrap().distance, None);
         // A distance out of reach is refused.
         assert!(b.with_distance(Some(100)).is_err());
+    }
+
+    #[test]
+    fn a_ray_stops_at_the_first_block_it_meets() {
+        let mut w = Map::default();
+        w.set([0, 64, 5], 1);
+        // The eye is in the middle of the block [0, 64, 0].
+        let ray = ray_blocks(&w, [0.5, 64.5, 0.5], [0.0, 0.0, 1.0], 20.0, 0);
+        assert!(ray.solid);
+        // The block the eye is in is not in the way.
+        assert!(!ray.blocks.contains(&[0, 64, 0]));
+        // The ray ends on the block it meets.
+        assert_eq!(ray.blocks.last(), Some(&[0, 64, 5]));
+        // The blocks between the eye and the stone.
+        assert_eq!(ray.blocks.len(), 5);
+    }
+
+    #[test]
+    fn a_ray_through_the_sky_goes_on_to_the_distance() {
+        let w = Map::default();
+        let ray = ray_blocks(&w, [0.5, 64.5, 0.5], [0.0, 0.0, 1.0], 3.0, 0);
+        // It meets nothing.
+        assert!(!ray.solid);
+        // And it stops at the distance.
+        assert_eq!(ray.blocks.last(), Some(&[0, 64, 3]));
+    }
+
+    #[test]
+    fn a_brush_dragged_along_a_line_covers_it() {
+        let b = Brush::parse("sphere 1 stone", &names).unwrap();
+        let path = vec![[0, 64, 0], [0, 64, 1], [0, 64, 2]];
+        let blocks = b.stroke_positions(&path).unwrap();
+        // Every block of the line is covered, and the shape around it.
+        for p in path {
+            assert!(blocks.contains(&p));
+        }
+        assert!(blocks.contains(&[0, 65, 1]));
+        // Far off the line it does not reach.
+        assert!(!blocks.contains(&[0, 64, 6]));
+        // And no block is covered twice.
+        let mut unique = blocks.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(blocks.len(), unique.len());
+    }
+
+    #[test]
+    fn a_brush_click_says_which_button_it_was() {
+        assert_eq!(parse_brush(&brush_payload(false)), Some(false));
+        assert_eq!(parse_brush(&brush_payload(true)), Some(true));
+        assert_eq!(parse_brush(&[]), None);
+        assert_eq!(parse_brush(&[7]), None);
     }
 }
