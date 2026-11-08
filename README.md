@@ -87,7 +87,8 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we sel` (or `desel`) | Clear the selection |
 | `/we sel <shape> [sizes]` | Shape of the selection: `cube`, `sphere`, `cylinder`, `ellipsoid`. With sizes the shape appears around you at once, without them it follows the `pos1`/`pos2` corners |
 | `/we grid on` / `/we grid off` | The grid inside the selection: on or off. The frame always stays. Your setting alone |
-| `/we brush <shape> [sizes] <pattern>` | Arm a brush: the wand's left click paints it on the block you click. `/we brush off` puts it away |
+| `/we brush <shape> [sizes] <pattern>` | Arm a brush: the wand's left click paints it on the block you click, the right click erases it. `/we brush off` puts it away |
+| `/we brush radius <n>` | The radius of the armed brush: `7` sets it, `+1` grows it, `-1` shrinks it |
 | `/we size` | Show selection size and block count |
 | `/we expand <n> [direction]` | Grow the selection by n blocks. No direction = the way you look |
 | `/we contract <n> [direction]` | Shrink the selection from that side |
@@ -113,9 +114,10 @@ How the sizes work:
 
 ## Brushes
 
-- `/we brush sphere 5 stone` arms a brush. The wand's left click then paints its shape on the block you click: the shape sits in the middle of that block.
+- `/we brush sphere 5 stone` arms a brush. The wand's left click then paints its shape on the block you click: the shape sits in the middle of that block. The wand's **right click erases** the same shape with air.
 - The shapes are the selection's own: `sphere <radius>`, `cylinder <radius> <height>`, `cube <side>`, `ellipsoid <rx> <ry> <rz>`.
-- The pattern is a block or a mix, as everywhere else: `stone`, `30%stone,dirt`, and `0` for air — a brush of air erases.
+- The pattern is a block or a mix, as everywhere else: `stone`, `30%stone,dirt`, and `0` for air.
+- `/we brush radius 7` sets the radius of the armed brush, `/we brush radius +1` grows it and `/we brush radius -1` shrinks it, so you can reach further without retyping the whole brush. A radius of 0 paints the single block you click.
 - The brush belongs to you alone. `/we brush` says which one is armed, `/we brush off` puts it away and the wand selects the corners again.
 - A stroke is one edit: `/we undo` takes it back.
 

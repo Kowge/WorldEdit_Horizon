@@ -1190,6 +1190,10 @@ impl Brush {
                 // The limit is checked before the ball is built: a big brush
                 // must not cost a big allocation.
                 check_limit((2 * r as u64 + 1).pow(3))?;
+                if r == 0 {
+                    // A radius of zero is the block itself.
+                    return Ok(vec![center]);
+                }
                 sphere(center, r, false)
             }
             Shape::Cylinder => {
@@ -1226,6 +1230,41 @@ impl Brush {
                 Ok(out)
             }
         }
+    }
+
+    /// The brush's radius: a sphere's and a cylinder's radius, a cube's half
+    /// side, an ellipsoid's longest radius.
+    pub fn radius(&self) -> i32 {
+        match self.shape {
+            Shape::Cube => (self.sizes[0] - 1) / 2,
+            Shape::Sphere | Shape::Cylinder => self.sizes[0],
+            Shape::Ellipsoid => self.sizes[0].max(self.sizes[1]).max(self.sizes[2]),
+        }
+    }
+
+    /// The same brush with another radius: a cube keeps its shape, an
+    /// ellipsoid keeps its proportions.
+    pub fn with_radius(&self, radius: i32) -> Result<Brush, String> {
+        if !(0..=max_radius()).contains(&radius) {
+            return Err(format!("A brush radius is 0 to {}.", max_radius()));
+        }
+        let mut sizes = self.sizes;
+        match self.shape {
+            Shape::Cube => sizes[0] = radius * 2 + 1,
+            Shape::Sphere | Shape::Cylinder => sizes[0] = radius,
+            Shape::Ellipsoid => {
+                let was = self.radius().max(1);
+                for s in sizes.iter_mut() {
+                    *s = ((*s as i64 * radius as i64).div_euclid(was as i64)) as i32;
+                }
+            }
+        }
+        Ok(Brush {
+            shape: self.shape,
+            sizes,
+            pattern: self.pattern.clone(),
+            text: self.text.clone(),
+        })
     }
 
     /// The brush as the messages write it.
@@ -2359,5 +2398,27 @@ mod tests {
         let (edits, blocks) = s.undo(&mut w, 1);
         assert_eq!((edits, blocks), (1, 27));
         assert_eq!(w.get([0, 0, 0]), 0);
+    }
+
+    #[test]
+    fn a_brush_grows_and_shrinks_with_its_radius() {
+        let b = Brush::parse("sphere 5 stone", &names).unwrap();
+        assert_eq!(b.radius(), 5);
+        let bigger = b.with_radius(7).unwrap();
+        assert_eq!(bigger.sizes, [7, 0, 0]);
+        assert_eq!(bigger.describe(), "sphere r=7, stone");
+        // A cube's radius is its half side.
+        let c = Brush::parse("cube 5 stone", &names).unwrap();
+        assert_eq!(c.radius(), 2);
+        assert_eq!(c.with_radius(3).unwrap().sizes, [7, 0, 0]);
+        // An ellipsoid keeps its proportions.
+        let e = Brush::parse("ellipsoid 4 2 4 stone", &names).unwrap();
+        assert_eq!(e.radius(), 4);
+        assert_eq!(e.with_radius(6).unwrap().sizes, [6, 3, 6]);
+        // A radius of zero is the block itself.
+        let one = b.with_radius(0).unwrap();
+        assert_eq!(one.positions([1, 2, 3]).unwrap(), vec![[1, 2, 3]]);
+        // A radius outside the limit is refused.
+        assert!(b.with_radius(1000).is_err());
     }
 }

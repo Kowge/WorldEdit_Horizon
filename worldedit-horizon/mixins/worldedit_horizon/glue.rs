@@ -181,7 +181,7 @@ pub fn commands(out: &mut Vec<NativeCommand>) {
 }
 
 const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 4): every command is /we <command>, as /we set stone. \
-wand | brush <shape> [sizes] <pattern> (off) | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
+wand | brush <shape> [sizes] <pattern> | brush radius <n> (off) | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
 expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
@@ -234,6 +234,12 @@ fn number(args: &[&str], at: usize) -> Result<i32, String> {
     args.get(at)
         .and_then(|a| a.parse().ok())
         .ok_or_else(|| "A number is needed.".to_owned())
+}
+
+/// A number in a word, as `+2` or `-1` in `/we brush radius`.
+fn a_number(text: &str) -> Result<i32, String> {
+    text.parse::<i32>()
+        .map_err(|_| format!("`{text}` is not a number."))
 }
 
 /// The way the player looks: up or down when steep, else the compass side.
@@ -367,6 +373,33 @@ fn run(
             if text.eq_ignore_ascii_case("off") {
                 session.brush = None;
                 return Ok("The brush is off. The wand selects the corners again.".to_owned());
+            }
+            // The radius of the brush that is armed: `brush radius 7`, `+1`.
+            let mut words = text.split_whitespace();
+            let first = words.next().unwrap_or_default();
+            if first.eq_ignore_ascii_case("radius") || first.eq_ignore_ascii_case("size") {
+                let Some(brush) = session.brush.clone() else {
+                    return Err("No brush. `/we brush sphere 5 stone` arms one.".to_owned());
+                };
+                let rest: Vec<&str> = words.collect();
+                let Some(word) = rest.first() else {
+                    return Ok(format!(
+                        "The brush is {} (radius {}).",
+                        brush.describe(),
+                        brush.radius()
+                    ));
+                };
+                let radius = if let Some(delta) = word.strip_prefix('+') {
+                    brush.radius() + a_number(delta)?
+                } else if let Some(delta) = word.strip_prefix('-') {
+                    brush.radius() - a_number(delta)?
+                } else {
+                    a_number(word)?
+                };
+                let brush = brush.with_radius(radius)?;
+                let line = format!("The brush is {}.", brush.describe());
+                session.brush = Some(brush);
+                return Ok(line);
             }
             let brush = {
                 let g: &Game<'_> = game;
@@ -914,6 +947,13 @@ pub fn wand_click(game: &mut Game<'_>, index: u8, pos: [i32; 3]) -> bool {
     let Some(player) = wand_player(game) else {
         return false;
     };
+    // With a brush armed, the right click erases instead of setting a corner.
+    if index == 2 {
+        let brush = with_sessions(|sessions| sessions.get(player.uuid).brush.clone());
+        if let Some(brush) = brush {
+            return paint_brush(game, &player, &brush, pos, true);
+        }
+    }
     set_corner(game, player.uuid, &player.dimension, index, pos);
     true
 }
@@ -928,6 +968,18 @@ pub fn brush_click(game: &mut Game<'_>, pos: [i32; 3]) -> bool {
     let Some(brush) = with_sessions(|sessions| sessions.get(player.uuid).brush.clone()) else {
         return false;
     };
+    paint_brush(game, &player, &brush, pos, false)
+}
+
+/// The brush on the block at `pos`: with its pattern, or with air when it
+/// erases. The stroke is one edit, so `/we undo` takes it back.
+fn paint_brush(
+    game: &mut Game<'_>,
+    player: &NativeServerPlayer,
+    brush: &we_core::Brush,
+    pos: [i32; 3],
+    erase: bool,
+) -> bool {
     let positions = match brush.positions(pos) {
         Ok(positions) => positions,
         Err(why) => {
@@ -935,17 +987,23 @@ pub fn brush_click(game: &mut Game<'_>, pos: [i32; 3]) -> bool {
             return true;
         }
     };
+    let pattern = if erase {
+        let air = block_id(game, "air").unwrap_or(0);
+        we_core::Pattern::single(air)
+    } else {
+        brush.pattern.clone()
+    };
     let dimension = player.dimension.clone();
     let edit = {
         let mut w = GameWorld { game, dimension };
-        we_core::fill(&mut w, &positions, &brush.pattern)
+        we_core::fill(&mut w, &positions, &pattern)
     };
     let n = edit.len();
-    // The stroke is one edit, so `/we undo` takes it back.
     with_sessions(|sessions| sessions.get(player.uuid).record(edit));
+    let what = if erase { "erased" } else { "painted" };
     game.native_action_bar(
         player.uuid,
-        Text::literal(format!("Brush: {n} blocks painted.")),
+        Text::literal(format!("Brush: {n} blocks {what}.")),
     );
     true
 }
@@ -1007,6 +1065,12 @@ pub fn wand_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
         return;
     };
     if !stacks.iter().flatten().take(9).any(|s| s.item.to_string() == WAND) {
+        return;
+    }
+    // With a brush armed, the click erases instead of setting the corner.
+    let brush = with_sessions(|sessions| sessions.get(player).brush.clone());
+    if let Some(brush) = brush {
+        paint_brush(game, &p, &brush, pos, true);
         return;
     }
     set_corner(game, player, &p.dimension, 2, pos);
