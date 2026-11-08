@@ -7,7 +7,7 @@
 
 **A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
 
-![version](https://img.shields.io/badge/version-1.0.0-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
+![version](https://img.shields.io/badge/version-1.2.0-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
 
 </div>
 
@@ -29,6 +29,7 @@
 - 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`.
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move.
+- 💾 **Schematics** — `/we schematic save <name>` writes the build of the selection into a file of the world's folder; `/we schematic load` reads it back and `/we paste` puts it down.
 - ↩️ **Undo / redo** with configurable history.
 - 🎲 **Patterns** — `stone`, `0` (air), `stone,dirt`, `30%stone,dirt`.
 - 🔧 **In-game limits** — `/we limit` changes block, radius, distance and history limits live.
@@ -191,6 +192,19 @@ No selection needed.
 | `/we stack <n> [direction]` | Repeat the selection n times |
 | `/we move <n> [direction]` | Move blocks and the selection |
 
+## Schematics
+
+| Command | Description |
+|---|---|
+| `/we schematic save <name>` | Write the build of the selection into a file of the world's folder (`world/worldedit_horizon/schematics/<name>.wehs`) |
+| `/we schematic load <name>` | Read the file back into the clipboard; `/we paste` puts it down |
+| `/we schematic list` | The saved builds and their size |
+| `/we schematic delete <name>` | Remove a saved build |
+
+- The build's **lowest corner goes where you stand** when you paste it, so the same build always lands the same way.
+- The name holds letters, digits, `_` and `-` only (up to 48 characters): it cannot point outside the schematics folder.
+- The file holds the blocks as the game's own block ids: read a build with the same game and the same resource pack as you saved it with.
+
 ## History
 
 | Command | Description |
@@ -232,7 +246,7 @@ Limits are shared by all players and reset when the game restarts; only an opera
 
 ## ⚠️ Known limitations
 
-- `regen` and schematics are not implemented.
+- `regen` is not implemented: mods have no access to the world generator.
 - `rotate` is named `/we rot` because vanilla already has `/rotate`.
 - Block orientation (`facing`) is not rotated by `rot` / `flip`.
 - Limits, physics mode and history are not saved between game launches.

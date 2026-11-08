@@ -19,6 +19,7 @@ Every command is under `/we`: `/we set stone`, `/we copy`, `/we undo`. The serve
 - **Selection shapes:** `sel cube`, `sel sphere`, `sel cylinder`, `sel ellipsoid` — the selection becomes a box, a ball, a tube or an ellipsoid; with sizes the volume appears around the player at once, without them it follows the two corners
 - **Chunks:** `chunkinfo` (the chunk under you and how many blocks it holds), `listchunks` (the chunks the selection covers)
 - **Clipboard:** `copy`, `cut`, `paste [skipair]`, `rot`, `flip`, `stack`, `move`, `clearclipboard`
+- **Schematics:** `schematic save|load|list|delete <name>` — the build of the selection, kept in a file of the world's own folder
 - **History and limits:** `undo`, `redo`, `physics [on|off]`, `limit`
 
 Patterns: `stone`, `50%stone,dirt`. Directions: `north south east west up down`.
@@ -38,6 +39,14 @@ The selection is drawn where you look: a frame around the box of the selection a
 The brush goes through the blocks it covered last, as if they were air: it does not shoot at its own work, so a second click does the same as the first one. A new brush keeps the distance of the old one: `/we brush sphere 4 dirt` changes the shape and the pattern, not the distance.
 
 The brush belongs to the player alone: `/we brush` says which one is armed and `/we brush off` puts it away, so the wand selects the corners again. A stroke is one edit in the history, so `/we undo` takes it back.
+
+## Schematics
+
+`/we schematic save <name>` writes the build of the current selection into a file of the world's own folder: `world/worldedit_horizon/schematics/<name>.wehs`, so the world's backups carry it along. The name holds letters, digits, `_` and `-` only (up to 48 characters), so it cannot leave that folder.
+
+`/we schematic load <name>` reads the file back into the clipboard, and `/we paste` puts the build down: its lowest corner goes where the player stands. `/we schematic list` shows the saved builds with their size, `/we schematic delete <name>` removes one.
+
+The file holds the blocks of the build and the size of the box they were taken from, as the game's own block ids: a build is read with the same game and the same resource pack as it was saved with.
 
 ## Install
 
