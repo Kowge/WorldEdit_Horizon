@@ -1,6 +1,6 @@
 [mod]
 id = "worldedit_horizon"
-version = "1.0.0"
+version = "1.1.0"
 priority = 100
 
 # The commit of horizon main it was tested on. It uses only the native hook

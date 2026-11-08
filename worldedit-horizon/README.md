@@ -29,6 +29,10 @@ The selection is drawn where you look: a frame around the box of the selection a
 
 `/we grid off` hides the grid inside the selection; the frame around it stays. The setting is yours alone: every player has their own, and it survives a new selection.
 
+## Brushes
+
+`/we brush sphere 5 stone` arms a brush for the player: the wand's left click then paints the brush's shape on the clicked block, in the middle of it. The shapes are the selection's own (`sphere <radius>`, `cylinder <radius> <height>`, `cube <side>`, `ellipsoid <rx> <ry> <rz>`) and the pattern a block or a mix, as everywhere else (`stone`, `30%stone,dirt`, `0` for air). The brush belongs to the player alone: `/we brush` says which one is armed and `/we brush off` puts it away, so the wand selects the corners again. A stroke is one edit in the history, so `/we undo` takes it back.
+
 ## Install
 
 - Download `worldedit_horizon-<version>.hnmod` from a release, or

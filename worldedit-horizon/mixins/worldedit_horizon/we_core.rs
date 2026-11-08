@@ -1100,6 +1100,159 @@ pub fn parse_blocks(text: &str, resolve: Resolver<'_>) -> Result<Vec<u32>, Strin
     Ok(out)
 }
 
+/// A brush: the shape it leaves and the pattern it paints with.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Brush {
+    /// The shape the brush leaves.
+    pub shape: Shape,
+    /// The shape's sizes: a cube's side, a sphere's radius, a cylinder's
+    /// radius and height, an ellipsoid's three radii.
+    pub sizes: [i32; 3],
+    /// The pattern it paints with.
+    pub pattern: Pattern,
+    /// The pattern as it was typed, for the messages.
+    pub text: String,
+}
+
+impl Brush {
+    /// A brush from `shape sizes... pattern`, as in `sphere 5 stone`.
+    pub fn parse(text: &str, resolve: Resolver<'_>) -> Result<Brush, String> {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        if words.len() < 3 {
+            return Err(
+                "A brush is a shape, its sizes and a pattern, as in `sphere 5 stone`.".to_owned(),
+            );
+        }
+        let shape = Shape::parse(words[0]).ok_or_else(|| {
+            format!(
+                "`{}` is not a brush shape (cube sphere cylinder ellipsoid).",
+                words[0]
+            )
+        })?;
+        let wanted = match shape {
+            Shape::Cube | Shape::Sphere => 1,
+            Shape::Cylinder => 2,
+            Shape::Ellipsoid => 3,
+        };
+        let pattern_text = words[words.len() - 1];
+        let sizes = &words[1..words.len() - 1];
+        if sizes.len() != wanted {
+            return Err(format!(
+                "A {} brush takes {}, as in `{}`.",
+                shape.name(),
+                match wanted {
+                    1 => "one size",
+                    2 => "a radius and a height",
+                    _ => "three radii",
+                },
+                example(shape)
+            ));
+        }
+        let mut out = [0i32; 3];
+        for (i, word) in sizes.iter().enumerate() {
+            let n: i32 = word
+                .parse()
+                .map_err(|_| format!("`{word}` is not a number."))?;
+            if !(1..=max_radius()).contains(&n) {
+                return Err(format!("A brush size is 1 to {}.", max_radius()));
+            }
+            out[i] = n;
+        }
+        let pattern = Pattern::parse(pattern_text, resolve)?;
+        Ok(Brush {
+            shape,
+            sizes: out,
+            pattern,
+            text: pattern_text.to_owned(),
+        })
+    }
+
+    /// The blocks the brush covers when it is used on `center`: the shape
+    /// sits in the middle of the block it was used on.
+    pub fn positions(&self, center: Pos) -> Result<Vec<Pos>, String> {
+        match self.shape {
+            Shape::Cube => {
+                let side = self.sizes[0];
+                check_limit(side as u64 * side as u64 * side as u64)?;
+                let low = -(side / 2);
+                let mut out = Vec::with_capacity((side * side * side) as usize);
+                for x in low..=low + side - 1 {
+                    for y in low..=low + side - 1 {
+                        for z in low..=low + side - 1 {
+                            out.push(add(center, [x, y, z]));
+                        }
+                    }
+                }
+                Ok(out)
+            }
+            Shape::Sphere => {
+                let r = self.sizes[0];
+                // The limit is checked before the ball is built: a big brush
+                // must not cost a big allocation.
+                check_limit((2 * r as u64 + 1).pow(3))?;
+                sphere(center, r, false)
+            }
+            Shape::Cylinder => {
+                let (radius, height) = (self.sizes[0], self.sizes[1]);
+                check_limit((2 * radius as u64 + 1).pow(2) * height as u64)?;
+                let inside = in_circle(radius);
+                let disc = disc(radius, &inside, false);
+                let low = -(height / 2);
+                let mut out = Vec::with_capacity(disc.len() * height as usize);
+                for dy in low..=low + height - 1 {
+                    for &(x, z) in &disc {
+                        out.push(add(center, [x, dy, z]));
+                    }
+                }
+                Ok(out)
+            }
+            Shape::Ellipsoid => {
+                let [rx, ry, rz] = self.sizes;
+                check_limit((2 * rx as u64 + 1) * (2 * ry as u64 + 1) * (2 * rz as u64 + 1))?;
+                let (rx, ry, rz) = (rx as f64 + 0.5, ry as f64 + 0.5, rz as f64 + 0.5);
+                let mut out = Vec::new();
+                for y in -self.sizes[1]..=self.sizes[1] {
+                    for x in -self.sizes[0]..=self.sizes[0] {
+                        for z in -self.sizes[2]..=self.sizes[2] {
+                            let inside = (x as f64 / rx).powi(2)
+                                + (y as f64 / ry).powi(2)
+                                + (z as f64 / rz).powi(2);
+                            if inside <= 1.0 {
+                                out.push(add(center, [x, y, z]));
+                            }
+                        }
+                    }
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    /// The brush as the messages write it.
+    pub fn describe(&self) -> String {
+        let shape = match self.shape {
+            Shape::Cube => format!("cube {}", self.sizes[0]),
+            Shape::Sphere => format!("sphere r={}", self.sizes[0]),
+            Shape::Cylinder => format!("cylinder r={} h={}", self.sizes[0], self.sizes[1]),
+            Shape::Ellipsoid => format!(
+                "ellipsoid {}x{}x{}",
+                self.sizes[0], self.sizes[1], self.sizes[2]
+            ),
+        };
+        format!("{shape}, {}", self.text)
+    }
+}
+
+/// How a shape's brush is written, for the messages.
+fn example(shape: Shape) -> &'static str {
+    match shape {
+        Shape::Cube => "cube 5 stone",
+        Shape::Sphere => "sphere 5 stone",
+        Shape::Cylinder => "cylinder 3 4 stone",
+        Shape::Ellipsoid => "ellipsoid 4 2 4 stone",
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Change {
     pub pos: Pos,
@@ -1616,6 +1769,8 @@ pub fn move_writes<W: World>(
 pub struct Session {
     pub selection: Selection,
     pub clipboard: Option<Clipboard>,
+    /// The brush the player armed with `/we brush`, if any.
+    pub brush: Option<Brush>,
     undo: Vec<Edit>,
     redo: Vec<Edit>,
 }
@@ -2133,5 +2288,76 @@ mod tests {
             s.set_region(&r);
             assert_eq!(s.region().unwrap(), r, "{shape:?} does not survive");
         }
+    }
+
+    #[test]
+    fn a_brush_is_a_shape_its_sizes_and_a_pattern() {
+        let b = Brush::parse("sphere 5 stone", &names).unwrap();
+        assert_eq!(b.shape, Shape::Sphere);
+        assert_eq!(b.sizes, [5, 0, 0]);
+        assert_eq!(b.text, "stone");
+        assert_eq!(b.describe(), "sphere r=5, stone");
+        let c = Brush::parse("cylinder 3 4 stone", &names).unwrap();
+        assert_eq!(c.sizes, [3, 4, 0]);
+        let e = Brush::parse("ellipsoid 4 2 4 dirt", &names).unwrap();
+        assert_eq!(e.sizes, [4, 2, 4]);
+        // A brush needs a shape, its sizes and a pattern.
+        assert!(Brush::parse("sphere stone", &names).is_err());
+        assert!(Brush::parse("cube 2 3 stone", &names).is_err());
+        assert!(Brush::parse("pyramid 2 stone", &names).is_err());
+        assert!(Brush::parse("sphere 0 stone", &names).is_err());
+        assert!(Brush::parse("sphere 5 nosuchblock", &names).is_err());
+    }
+
+    #[test]
+    fn a_brush_paints_around_the_block_it_was_used_on() {
+        let b = Brush::parse("sphere 1 stone", &names).unwrap();
+        let p = b.positions([0, 0, 0]).unwrap();
+        // The block itself and the eighteen around it: the corners of the
+        // three by three by three box are outside the ball.
+        assert_eq!(p.len(), 19);
+        assert!(p.contains(&[0, 0, 0]) && p.contains(&[1, 0, 0]) && p.contains(&[-1, 0, 0]));
+        assert!(!p.contains(&[1, 1, 1]));
+        let c = Brush::parse("cube 3 stone", &names).unwrap();
+        let p = c.positions([10, 20, 30]).unwrap();
+        assert_eq!(p.len(), 27);
+        assert!(p.contains(&[10, 20, 30]) && p.contains(&[11, 21, 31]) && p.contains(&[9, 19, 29]));
+        // A cylinder stands in the middle of the block it was used on.
+        let cyl = Brush::parse("cylinder 1 3 stone", &names).unwrap();
+        let p = cyl.positions([0, 0, 0]).unwrap();
+        // The disc of radius 1 has nine columns, three blocks high.
+        assert_eq!(p.len(), 27);
+        assert!(p.contains(&[0, 0, 0]) && p.contains(&[0, 1, 0]) && p.contains(&[0, -1, 0]));
+        assert!(!p.contains(&[0, 2, 0]));
+        // An ellipsoid is a ball stretched.
+        let e = Brush::parse("ellipsoid 2 1 2 stone", &names).unwrap();
+        let p = e.positions([0, 0, 0]).unwrap();
+        assert!(p.contains(&[0, 0, 0]) && p.contains(&[0, 1, 0]) && p.contains(&[2, 0, 0]));
+        assert!(!p.contains(&[0, 2, 0]) && !p.contains(&[3, 0, 0]));
+    }
+
+    #[test]
+    fn a_brush_that_is_too_big_is_refused() {
+        // The limit is checked before the blocks are built.
+        let b = Brush::parse("sphere 128 stone", &names).unwrap();
+        assert!(b.positions([0, 0, 0]).is_err());
+        let c = Brush::parse("cube 100 stone", &names).unwrap();
+        assert!(c.positions([0, 0, 0]).is_err());
+        let d = Brush::parse("cylinder 100 100 stone", &names).unwrap();
+        assert!(d.positions([0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn a_brush_stroke_can_be_undone() {
+        let mut w = Map::default();
+        let mut s = Session::default();
+        let b = Brush::parse("cube 3 stone", &names).unwrap();
+        let edit = fill(&mut w, &b.positions([0, 0, 0]).unwrap(), &b.pattern);
+        assert_eq!(edit.len(), 27);
+        s.record(edit);
+        assert_eq!(w.get([0, 0, 0]), 1);
+        let (edits, blocks) = s.undo(&mut w, 1);
+        assert_eq!((edits, blocks), (1, 27));
+        assert_eq!(w.get([0, 0, 0]), 0);
     }
 }

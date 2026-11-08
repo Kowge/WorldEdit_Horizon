@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "0.10.0";
+pub const VERSION: &str = "1.1.0";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
@@ -115,6 +115,7 @@ const USAGES: &[&str] = &[
     "we",
     "we help",
     "we wand",
+    "we brush [args:text]",
     "we drain",
     "we fixwater",
     "we fixlava",
@@ -180,7 +181,7 @@ pub fn commands(out: &mut Vec<NativeCommand>) {
 }
 
 const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 4): every command is /we <command>, as /we set stone. \
-wand | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
+wand | brush <shape> [sizes] <pattern> (off) | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
 expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
@@ -351,6 +352,33 @@ fn run(
             0 => Err("Your inventory is full.".to_owned()),
             _ => Ok("Left click a block for the first corner, right click for the second.".to_owned()),
         },
+        "brush" => {
+            // The brush the player paints with: `brush sphere 5 stone`.
+            let text = args[1..].join(" ");
+            if text.is_empty() {
+                return Ok(match &session.brush {
+                    Some(b) => format!(
+                        "The brush is {}. Click a block to paint it.",
+                        b.describe()
+                    ),
+                    None => "No brush. `/we brush sphere 5 stone` arms one.".to_owned(),
+                });
+            }
+            if text.eq_ignore_ascii_case("off") {
+                session.brush = None;
+                return Ok("The brush is off. The wand selects the corners again.".to_owned());
+            }
+            let brush = {
+                let g: &Game<'_> = game;
+                we_core::Brush::parse(&text, &|name| block_id(g, name))?
+            };
+            let line = format!(
+                "The brush is {}. Click a block to paint it; `/we brush off` stops it.",
+                brush.describe()
+            );
+            session.brush = Some(brush);
+            Ok(line)
+        }
         "pos1" | "pos2" => {
             let index = if sub == "pos1" { 1 } else { 2 };
             // With a position of its own, as in vanilla: `//pos1 10,64,-5`.
@@ -887,6 +915,38 @@ pub fn wand_click(game: &mut Game<'_>, index: u8, pos: [i32; 3]) -> bool {
         return false;
     };
     set_corner(game, player.uuid, &player.dimension, index, pos);
+    true
+}
+
+/// A click of the wand with a brush armed: it paints the brush on the block
+/// at `pos`. It says whether the click was the brush's, so that the block is
+/// not broken then.
+pub fn brush_click(game: &mut Game<'_>, pos: [i32; 3]) -> bool {
+    let Some(player) = wand_player(game) else {
+        return false;
+    };
+    let Some(brush) = with_sessions(|sessions| sessions.get(player.uuid).brush.clone()) else {
+        return false;
+    };
+    let positions = match brush.positions(pos) {
+        Ok(positions) => positions,
+        Err(why) => {
+            fail(game, format!("The brush does not fit: {why}"));
+            return true;
+        }
+    };
+    let dimension = player.dimension.clone();
+    let edit = {
+        let mut w = GameWorld { game, dimension };
+        we_core::fill(&mut w, &positions, &brush.pattern)
+    };
+    let n = edit.len();
+    // The stroke is one edit, so `/we undo` takes it back.
+    with_sessions(|sessions| sessions.get(player.uuid).record(edit));
+    game.native_action_bar(
+        player.uuid,
+        Text::literal(format!("Brush: {n} blocks painted.")),
+    );
     true
 }
 

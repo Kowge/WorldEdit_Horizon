@@ -25,6 +25,7 @@
 - 🔷 **Shapes for the selection** — `/we sel sphere 5`, `/we sel cylinder 3 4`, `/we sel ellipsoid 4 2 4`: the selection becomes a ball, a cylinder or an ellipsoid instead of a box.
 - 🟥 **The selection is drawn for you** — a red frame around the box and a grid inside it, one cell per block. A round shape is drawn as the blocks it covers, so the outline stands on the blocks the command would change (like F3+B). The lines are drawn over everything, so the terrain does not hide the selection.
 - 🔲 **Your own view** — `/we grid on` and `/we grid off` turn the grid inside the selection off and on; the frame stays. The setting is yours alone.
+- 🖌 **Brushes** — `/we brush sphere 5 stone` arms a brush: the wand's left click paints its shape on the block you click. `/we brush off` puts the wand back to selecting corners.
 - 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`.
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move.
@@ -86,6 +87,7 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we sel` (or `desel`) | Clear the selection |
 | `/we sel <shape> [sizes]` | Shape of the selection: `cube`, `sphere`, `cylinder`, `ellipsoid`. With sizes the shape appears around you at once, without them it follows the `pos1`/`pos2` corners |
 | `/we grid on` / `/we grid off` | The grid inside the selection: on or off. The frame always stays. Your setting alone |
+| `/we brush <shape> [sizes] <pattern>` | Arm a brush: the wand's left click paints it on the block you click. `/we brush off` puts it away |
 | `/we size` | Show selection size and block count |
 | `/we expand <n> [direction]` | Grow the selection by n blocks. No direction = the way you look |
 | `/we contract <n> [direction]` | Shrink the selection from that side |
@@ -108,6 +110,14 @@ How the sizes work:
 - a sphere is a radius with its middle in the first corner;
 - a cylinder is a horizontal radius and a height in rows, its bottom in the first corner;
 - an ellipsoid is three radii with its middle in the first corner.
+
+## Brushes
+
+- `/we brush sphere 5 stone` arms a brush. The wand's left click then paints its shape on the block you click: the shape sits in the middle of that block.
+- The shapes are the selection's own: `sphere <radius>`, `cylinder <radius> <height>`, `cube <side>`, `ellipsoid <rx> <ry> <rz>`.
+- The pattern is a block or a mix, as everywhere else: `stone`, `30%stone,dirt`, and `0` for air — a brush of air erases.
+- The brush belongs to you alone. `/we brush` says which one is armed, `/we brush off` puts it away and the wand selects the corners again.
+- A stroke is one edit: `/we undo` takes it back.
 
 ## How the selection is drawn
 
