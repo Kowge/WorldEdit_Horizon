@@ -29,7 +29,7 @@
 - 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`.
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move.
-- 💾 **Schematics** — `/we schematic save <name>` writes the build of the selection into a file of the world's folder; `/we schematic load` reads it back and `/we paste` puts it down. Options > Horizon Settings > Mods has a button that opens the folder.
+- 💾 **Schematics** — `/we schematic save <name>` writes the build of the selection into a file of your own folder; `/we schematic load` reads it back and `/we paste` puts it down in front of you. Options > Horizon Settings > Mods has a button that opens the folder.
 - ↩️ **Undo / redo** with configurable history.
 - 🎲 **Patterns** — `stone`, `0` (air), `stone,dirt`, `30%stone,dirt`.
 - 🔧 **In-game limits** — `/we limit` changes block, radius, distance and history limits live.
@@ -196,15 +196,16 @@ No selection needed.
 
 | Command | Description |
 |---|---|
-| `/we schematic save <name>` | Write the build of the selection into a file of the world's folder (`world/worldedit_horizon/schematics/<name>.schematic`) |
+| `/we schematic save <name>` | Write the build of the selection into a file of your own folder |
 | `/we schematic load <name>` | Read the file back into the clipboard; `/we paste` puts it down |
 | `/we schematic list` | The saved builds and their size |
 | `/we schematic delete <name>` | Remove a saved build |
 
-- The build's **lowest corner goes where you stand** when you paste it, so the same build always lands the same way.
-- The name holds letters, digits, `_` and `-` only (up to 48 characters): it cannot point outside the schematics folder.
+- **The files are yours**: they live in the mod's own folder of your instance (`horizon-mods/.horizon-mod-data/worldedit_horizon/`). The button *Open the schematics folder* on the mod's page in Options > Horizon Settings > Mods opens exactly where they are. They are plain files: copy them wherever you like.
+- A paste puts the build **in front of you, in the middle of the way you look**: its near face a block ahead of you, the box centred on your line, its floor on the ground.
+- The name holds letters, digits, `_` and `-` only (up to 48 characters): it cannot point outside the folder.
 - The file is the mod's own format, not WorldEdit's `.schematic`: it holds the blocks as the game's own block ids, so read a build with the same game and the same resource pack as you saved it with.
-- **The folder is one click away**: Options > Horizon Settings > Mods lists WorldEdit; its page has the button *Open the schematics folder*, which opens the folder in the system's file manager. It is the open world's own folder (`<world>/worldedit_horizon/schematics`), where `/we schematic save` writes; with no world open it is the mod's own folder in the instance.
+- A big build travels from the server to your computer in parts, so it takes a moment.
 
 ## History
 

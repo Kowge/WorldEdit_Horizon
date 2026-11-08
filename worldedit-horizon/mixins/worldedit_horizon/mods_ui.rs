@@ -5,7 +5,6 @@
 // mods_helper.rs, settings_helper.rs and settings_click_helper.rs call in
 // here.
 
-use crate::mod_api::Host;
 use std::path::PathBuf;
 
 /// The id the mod is listed under.
@@ -37,13 +36,8 @@ pub fn click(game: &mut crate::game::Game<'_>, mod_id: &str, button: usize) {
     }
 }
 
-/// The folder with the schematics: the open world's own, where the server
-/// keeps them, or the mod's own folder in the instance when no world is
-/// open.
+/// The folder with the schematics: the mod's own folder in the instance,
+/// where the client keeps them.
 fn schematics_dir(game: &mut crate::game::Game<'_>) -> PathBuf {
-    let host: &mut dyn Host = game;
-    match host.world_dir() {
-        Some(world) => crate::game::we_core::schematic_dir(&world),
-        None => game.native_data_dir(ID),
-    }
+    crate::game::we_schematics_client::dir(game)
 }

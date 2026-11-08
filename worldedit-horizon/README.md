@@ -19,7 +19,7 @@ Every command is under `/we`: `/we set stone`, `/we copy`, `/we undo`. The serve
 - **Selection shapes:** `sel cube`, `sel sphere`, `sel cylinder`, `sel ellipsoid` — the selection becomes a box, a ball, a tube or an ellipsoid; with sizes the volume appears around the player at once, without them it follows the two corners
 - **Chunks:** `chunkinfo` (the chunk under you and how many blocks it holds), `listchunks` (the chunks the selection covers)
 - **Clipboard:** `copy`, `cut`, `paste [skipair]`, `rot`, `flip`, `stack`, `move`, `clearclipboard`
-- **Schematics:** `schematic save|load|list|delete <name>` — the build of the selection, kept in a file of the world's own folder
+- **Schematics:** `schematic save|load|list|delete <name>` — the build of the selection, kept in a file of the player's own folder
 - **History and limits:** `undo`, `redo`, `physics [on|off]`, `limit`
 
 Patterns: `stone`, `50%stone,dirt`. Directions: `north south east west up down`.
@@ -42,13 +42,15 @@ The brush belongs to the player alone: `/we brush` says which one is armed and `
 
 ## Schematics
 
-`/we schematic save <name>` writes the build of the current selection into a file of the world's own folder: `world/worldedit_horizon/schematics/<name>.schematic`, so the world's backups carry it along. The name holds letters, digits, `_` and `-` only (up to 48 characters), so it cannot leave that folder.
+`/we schematic save <name>` writes the build of the current selection into a file of the player's own folder: the mod's own folder of the instance, `horizon-mods/.horizon-mod-data/worldedit_horizon/`. The name holds letters, digits, `_` and `-` only (up to 48 characters), so it cannot leave that folder.
 
-`/we schematic load <name>` reads the file back into the clipboard, and `/we paste` puts the build down: its lowest corner goes where the player stands. `/we schematic list` shows the saved builds with their size, `/we schematic delete <name>` removes one.
+`/we schematic load <name>` reads the file back into the clipboard, and `/we paste` puts the build down: in front of the player, in the middle of the way they look — its near face a block ahead of them, the box centred on their line, its floor on the ground. `/we schematic list` shows the saved builds with their size, `/we schematic delete <name>` removes one.
+
+The files are the player's own, so the client keeps them: the server gathers the blocks and asks the client over the `worldedit_horizon:schematic` channel to write or read them. A file is bigger than one message (the game takes 30 000 bytes), so it travels in parts of 24 000 bytes, and the receiver asks for the rest with `more`.
 
 The file holds the blocks of the build and the size of the box they were taken from, as the game's own block ids: a build is read with the same game and the same resource pack as it was saved with. The format is the mod's own, not WorldEdit's `.schematic`.
 
-Options > Horizon Settings > Mods lists the mod: its page has the button *Open the schematics folder*, which opens the folder in the system's file manager — the open world's own (`<world>/worldedit_horizon/schematics`), where the server keeps the schematics, or the mod's own folder in the instance when no world is open. The client asks the mods for their rows and buttons through the `native_mods`, `native_settings` and `native_settings_click` hooks (`mods_ui.rs`).
+Options > Horizon Settings > Mods lists the mod: its page has the button *Open the schematics folder*, which opens the folder with the files in the system's file manager. The client asks the mods for their rows and buttons through the `native_mods`, `native_settings` and `native_settings_click` hooks (`mods_ui.rs`).
 
 ## Install
 
@@ -65,7 +67,8 @@ Layout: `mixins/worldedit_horizon/` holds `horizon-mixin.toml`, the hook helpers
 (`we_core.rs`: the rules with no game types and their unit tests; `glue.rs`: the edges to the game's types;
 `geometry.rs`: the selection as the client draws it, without game types; `render.rs`: the client's half, the
 selection the server sent and the lines it is drawn with; `brush_client.rs`: the brush's clicks in the air;
-`mods_ui.rs`: the mod's row in Options > Mods and the button that opens the folder with the schematics).
+`mods_ui.rs`: the mod's row in Options > Mods and the button that opens the folder with the schematics;
+`schematics_client.rs`: the client's half, the files with the schematics).
 `compatibility.json` pins the Horizon commit the mod was
 tested on and the hook points version (`hooks`).
 

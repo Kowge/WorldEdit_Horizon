@@ -1882,6 +1882,10 @@ pub fn count<W: World>(world: &W, positions: &[Pos], of: &[u32]) -> u64 {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Clipboard {
     pub blocks: Vec<(Pos, u32)>,
+    /// The size of the box the blocks came from, when the clipboard holds a
+    /// schematic: a paste then puts the box in front of the player, in the
+    /// middle of the way they look.
+    pub size: Option<[i32; 3]>,
 }
 
 impl Clipboard {
@@ -1892,6 +1896,7 @@ impl Clipboard {
                 .into_iter()
                 .map(|p| (sub(p, origin), world.get(p)))
                 .collect(),
+            size: None,
         }
     }
     /// Turns the clipboard about the vertical axis by a multiple of 90
@@ -1958,6 +1963,76 @@ pub fn schematic_file(name: &str) -> String {
     format!("{name}.{SCHEMATIC_EXTENSION}")
 }
 
+/// Where a schematic's box goes: the blocks in front of the player, the box
+/// in the middle of the way they look, its floor on the ground.
+pub fn in_front(feet: Pos, size: [i32; 3], dir: Dir) -> Pos {
+    let v = dir.vector();
+    let mut at = feet;
+    at[0] = if v[0] > 0 {
+        feet[0] + 1
+    } else if v[0] < 0 {
+        feet[0] - size[0]
+    } else {
+        feet[0] - (size[0] - 1) / 2
+    };
+    at[2] = if v[2] > 0 {
+        feet[2] + 1
+    } else if v[2] < 0 {
+        feet[2] - size[2]
+    } else {
+        feet[2] - (size[2] - 1) / 2
+    };
+    at[1] = feet[1];
+    at
+}
+
+/// The size of the box and the number of blocks of a schematic file, from
+/// its header alone.
+pub fn schematic_info(data: &[u8]) -> Option<([i32; 3], usize)> {
+    if data.len() < SCHEMATIC_HEADER || &data[0..4] != SCHEMATIC_MAGIC {
+        return None;
+    }
+    let mut size = [0i32; 3];
+    for (i, s) in size.iter_mut().enumerate() {
+        let at = 8 + i * 4;
+        *s = i32::from_le_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]);
+    }
+    let count = u32::from_le_bytes([data[20], data[21], data[22], data[23]]) as usize;
+    Some((size, count))
+}
+
+/// The channel the client and the server talk about the schematics on.
+pub const SCHEMATIC_CHANNEL: &str = "worldedit_horizon:schematic";
+/// The most bytes of a schematic file in one message: the game's own limit
+/// is 30 000.
+pub const PART_SIZE: usize = 24_000;
+/// The most messages of one batch: the game sends at most 32 a tick.
+pub const BATCH: usize = 30;
+
+/// A message of the channel: a header line and the bytes after it.
+pub fn message(header: &str, payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(header.len() + 1 + payload.len());
+    out.extend_from_slice(header.as_bytes());
+    out.push(b'\n');
+    out.extend_from_slice(payload);
+    out
+}
+
+/// The header of a message and its bytes.
+pub fn split_message(data: &[u8]) -> Option<(&str, &[u8])> {
+    let at = data.iter().position(|b| *b == b'\n')?;
+    let header = std::str::from_utf8(&data[..at]).ok()?;
+    Some((header, &data[at + 1..]))
+}
+
+/// A file in parts, each of them small enough for one message.
+pub fn parts(data: &[u8]) -> Vec<Vec<u8>> {
+    if data.is_empty() {
+        return vec![Vec::new()];
+    }
+    data.chunks(PART_SIZE).map(|part| part.to_vec()).collect()
+}
+
 /// The name of a schematic: only the characters that cannot leave the
 /// schematics folder.
 pub fn schematic_name(name: &str) -> Result<String, String> {
@@ -2005,6 +2080,7 @@ impl Schematic {
     pub fn to_clipboard(&self) -> Clipboard {
         Clipboard {
             blocks: self.blocks.clone(),
+            size: Some(self.size),
         }
     }
     /// The bytes of the file: the header, then every block.
@@ -2481,6 +2557,52 @@ mod tests {
         assert!(schematic_name("a/b").is_err());
         assert!(schematic_name("a\\b").is_err());
         assert!(schematic_name(&"x".repeat(49)).is_err());
+    }
+
+    #[test]
+    fn a_schematic_goes_in_front_of_the_player() {
+        // A 3×3×2 build: its near face a block ahead of the player, the box
+        // in the middle of the way they look, its floor on the ground.
+        assert_eq!(in_front([10, 64, 10], [3, 2, 3], Dir::North), [9, 64, 7]);
+        assert_eq!(in_front([10, 64, 10], [3, 2, 3], Dir::South), [9, 64, 11]);
+        assert_eq!(in_front([10, 64, 10], [3, 2, 3], Dir::East), [11, 64, 9]);
+        assert_eq!(in_front([10, 64, 10], [3, 2, 3], Dir::West), [7, 64, 9]);
+    }
+
+    #[test]
+    fn the_schematics_channel_splits_its_messages() {
+        let data = message("write house 0 2", &[1, 2, 3]);
+        let (header, payload) = split_message(&data).unwrap();
+        assert_eq!(header, "write house 0 2");
+        assert_eq!(payload, &[1, 2, 3]);
+        assert!(split_message(b"no line").is_none());
+        let parts = parts(&[0u8; 50_000]);
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0].len(), PART_SIZE);
+        assert_eq!(parts[2].len(), 2_000);
+    }
+
+    #[test]
+    fn a_schematic_file_tells_its_size() {
+        let mut w = Map::default();
+        w.0.insert([0, 0, 0], 1);
+        let s = Schematic::of(&w, &Region::cube([0, 0, 0], [1, 1, 1]));
+        let data = s.encode();
+        let (size, count) = schematic_info(&data).unwrap();
+        assert_eq!(size, [2, 2, 2]);
+        assert_eq!(count, 8);
+        assert!(schematic_info(b"not a schematic").is_none());
+    }
+
+    #[test]
+    fn a_loaded_schematic_knows_its_box() {
+        let mut w = Map::default();
+        w.0.insert([1, 0, 0], 7);
+        let c = Region::cube([1, 0, 0], [2, 1, 1]);
+        let clip = Schematic::of(&w, &c).to_clipboard();
+        assert_eq!(clip.size, Some([2, 2, 2]));
+        // A copy keeps the place it was copied from.
+        assert_eq!(Clipboard::copy(&w, &c, [0, 0, 0]).size, None);
     }
 
     #[test]

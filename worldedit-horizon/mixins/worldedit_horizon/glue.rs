@@ -10,12 +10,9 @@ use crate::game::{
         self, Clipboard, Dir, Pattern, Pos, Region, Session, Sessions, Shape, World,
     },
 };
-use crate::mod_api::Host;
 use horizon_client::text::{self, Text};
 use horizon_world::registry::BlockStateId;
-use std::collections::HashSet;
-use std::fs;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -291,16 +288,22 @@ fn facing(player: &NativeServerPlayer) -> Dir {
     } else if player.pitch < -45.0 {
         Dir::Up
     } else {
-        let yaw = player.yaw.rem_euclid(360.0);
-        if !(45.0..315.0).contains(&yaw) {
-            Dir::South
-        } else if yaw < 135.0 {
-            Dir::West
-        } else if yaw < 225.0 {
-            Dir::North
-        } else {
-            Dir::East
-        }
+        horizontal_facing(player)
+    }
+}
+
+/// The compass side the player looks at: the way they look, without the up
+/// and the down.
+fn horizontal_facing(player: &NativeServerPlayer) -> Dir {
+    let yaw = player.yaw.rem_euclid(360.0);
+    if !(45.0..315.0).contains(&yaw) {
+        Dir::South
+    } else if yaw < 135.0 {
+        Dir::West
+    } else if yaw < 225.0 {
+        Dir::North
+    } else {
+        Dir::East
     }
 }
 
@@ -1034,7 +1037,13 @@ fn run(
                 .as_ref()
                 .ok_or_else(|| "The clipboard is empty (//copy).".to_owned())?;
             let skip = flag(args, 1).then_some(air);
-            let writes = clip.writes(origin, skip);
+            // A schematic goes in front of the player, in the middle of the
+            // way they look; a copy keeps the place it was copied from.
+            let at = match clip.size {
+                Some(size) => we_core::in_front(origin, size, horizontal_facing(player)),
+                None => origin,
+            };
+            let writes = clip.writes(at, skip);
             we_core::check_limit(writes.len() as u64)?;
             let edit = {
                 let mut w = GameWorld { game, dimension };
@@ -1112,24 +1121,33 @@ fn run(
     }
 }
 
-/// The folder the schematics live in: the world's own folder, so that the
-/// world's backups carry them.
-fn schematic_dir(game: &Game<'_>) -> Result<PathBuf, String> {
-    let root = game
-        .world_dir()
-        .ok_or_else(|| "No world is open.".to_owned())?;
-    Ok(we_core::schematic_dir(&root))
+/// A file the server is sending to a player, in parts.
+struct Outgoing {
+    name: String,
+    parts: Vec<Vec<u8>>,
+    next: usize,
 }
 
+/// The parts of a file a player is sending, put together.
+struct Incoming {
+    count: usize,
+    parts: Vec<Option<Vec<u8>>>,
+    got: usize,
+}
+
+/// The files the server sends to the players, and the ones they send back.
+static SCHEMATICS_OUT: Mutex<Option<HashMap<u128, Outgoing>>> = Mutex::new(None);
+static SCHEMATICS_IN: Mutex<Option<HashMap<u128, Incoming>>> = Mutex::new(None);
+
 /// `/we schematic save|load|list|delete`: the build of the selection, kept
-/// in a file of the world's folder.
+/// in a file of the player's own folder. The client owns the files, so the
+/// server asks it to write and read them.
 fn schematic(
     game: &mut Game<'_>,
     player: &NativeServerPlayer,
     session: &mut Session,
     args: &[&str],
 ) -> Result<String, String> {
-    let dir = schematic_dir(game)?;
     match args.get(1).copied() {
         Some("save") => {
             let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
@@ -1139,71 +1157,212 @@ fn schematic(
                 let reader = GameReader { game: &*game };
                 we_core::Schematic::of(&reader, &c)
             };
-            let blocks = build.blocks.len();
-            fs::create_dir_all(&dir).map_err(|e| format!("The schematics folder cannot be made: {e}"))?;
-            let path = dir.join(we_core::schematic_file(&name));
-            let replaced = path.exists();
-            fs::write(&path, build.encode()).map_err(|e| format!("The schematic cannot be written: {e}"))?;
-            Ok(if replaced {
-                format!("Schematic `{name}` saved: {blocks} blocks (the old one was replaced).")
-            } else {
-                format!("Schematic `{name}` saved: {blocks} blocks.")
-            })
+            schematic_send_file(game, player.uuid, &name, build.encode());
+            Ok(format!("Saving the schematic `{name}`…"))
         }
         Some("load") => {
             let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
-            let path = dir.join(we_core::schematic_file(&name));
-            let data = fs::read(&path)
-                .map_err(|_| format!("There is no schematic called `{name}`."))?;
-            let build = we_core::Schematic::decode(&data)?;
-            we_core::check_limit(build.blocks.len() as u64)?;
-            let blocks = build.blocks.len();
-            session.clipboard = Some(build.to_clipboard());
-            Ok(format!(
-                "Schematic `{name}` loaded: {blocks} blocks. Put it down with /we paste."
-            ))
+            schematic_send(game, player.uuid, &we_core::message(&format!("read {name}"), &[]));
+            Ok(format!("Loading the schematic `{name}`…"))
         }
         Some("list") => {
-            let mut found: Vec<(String, usize)> = Vec::new();
-            if dir.exists() {
-                let entries =
-                    fs::read_dir(&dir).map_err(|e| format!("The schematics cannot be read: {e}"))?;
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str()) != Some(we_core::SCHEMATIC_EXTENSION) {
-                        continue;
-                    }
-                    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                        continue;
-                    };
-                    let count = fs::read(&path)
-                        .ok()
-                        .and_then(|data| we_core::Schematic::decode(&data).ok())
-                        .map_or(0, |build| build.blocks.len());
-                    found.push((stem.to_owned(), count));
-                }
-            }
-            if found.is_empty() {
-                return Ok("There are no schematics yet.".to_owned());
-            }
-            found.sort();
-            let lines: Vec<String> = found
-                .iter()
-                .map(|(name, count)| format!("{name} ({count} blocks)"))
-                .collect();
-            Ok(format!("{} schematics: {}.", found.len(), lines.join(", ")))
+            schematic_send(game, player.uuid, &we_core::message("list", &[]));
+            Ok("Looking for the schematics…".to_owned())
         }
         Some("delete") => {
             let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
-            let path = dir.join(we_core::schematic_file(&name));
-            if !path.exists() {
-                return Err(format!("There is no schematic called `{name}`."));
-            }
-            fs::remove_file(&path).map_err(|e| format!("The schematic cannot be deleted: {e}"))?;
-            Ok(format!("Schematic `{name}` deleted."))
+            schematic_send(game, player.uuid, &we_core::message(&format!("delete {name}"), &[]));
+            Ok(format!("Deleting the schematic `{name}`…"))
         }
         _ => Err("Usage: /we schematic save|load|list|delete <name>".to_owned()),
     }
+}
+
+/// A message of the schematics channel to a player.
+fn schematic_send(game: &mut Game<'_>, player: u128, data: &[u8]) {
+    let host: &mut dyn crate::mod_api::Host = game;
+    let _ = host.net_send_to_player(player, we_core::SCHEMATIC_CHANNEL, data);
+}
+
+/// Sends a schematic file to the player, in parts: the game takes at most
+/// 30 000 bytes in one message and 32 messages a tick.
+fn schematic_send_file(game: &mut Game<'_>, player: u128, name: &str, data: Vec<u8>) {
+    let parts = we_core::parts(&data);
+    {
+        let mut guard = SCHEMATICS_OUT.lock().unwrap_or_else(|e| e.into_inner());
+        guard.get_or_insert_with(HashMap::new).insert(
+            player,
+            Outgoing {
+                name: name.to_owned(),
+                parts,
+                next: 0,
+            },
+        );
+    }
+    schematic_send_parts(game, player);
+}
+
+/// The next parts of the file the server sends to the player.
+fn schematic_send_parts(game: &mut Game<'_>, player: u128) {
+    let (name, count, batch) = {
+        let mut guard = SCHEMATICS_OUT.lock().unwrap_or_else(|e| e.into_inner());
+        let map = guard.get_or_insert_with(HashMap::new);
+        let Some(out) = map.get_mut(&player) else {
+            return;
+        };
+        let count = out.parts.len();
+        let name = out.name.clone();
+        let mut batch = Vec::new();
+        while batch.len() < we_core::BATCH && out.next < out.parts.len() {
+            batch.push((out.next, out.parts[out.next].clone()));
+            out.next += 1;
+        }
+        (name, count, batch)
+    };
+    for (index, bytes) in batch {
+        let header = format!("write {name} {index} {count}");
+        schematic_send(game, player, &we_core::message(&header, &bytes));
+    }
+}
+
+/// What the client says about the schematics: the parts of the file it
+/// sends, and the answers to the server's requests.
+pub fn schematic_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
+    let Some((header, payload)) = we_core::split_message(data) else {
+        return;
+    };
+    let mut words = header.split_whitespace();
+    match words.next() {
+        Some("read") => {
+            let name = words.next().unwrap_or("").to_owned();
+            let index = words.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+            let count = words.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+            if !schematic_take_part(player, index, count, payload) {
+                // The rest of the file is on its way.
+                schematic_send(game, player, &we_core::message(&format!("more {name}"), &[]));
+                return;
+            }
+            let Some(data) = schematic_finished(player) else {
+                return;
+            };
+            schematic_loaded(game, player, &name, &data);
+        }
+        Some("more") => schematic_send_parts(game, player),
+        Some("wrote") => {
+            let name = words.next().unwrap_or("").to_owned();
+            let count = words.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+            tell(game, player, &format!("Schematic `{name}` saved: {count} blocks."));
+        }
+        Some("listed") => {
+            let count = words.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+            let text = String::from_utf8_lossy(payload);
+            let lines: Vec<String> = text
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(|line| {
+                    let mut words = line.split_whitespace();
+                    let name = words.next().unwrap_or("");
+                    let blocks = words.next().unwrap_or("0");
+                    format!("{name} ({blocks} blocks)")
+                })
+                .collect();
+            if lines.is_empty() {
+                tell(game, player, "There are no schematics yet.");
+            } else {
+                tell(game, player, &format!("{count} schematics: {}.", lines.join(", ")));
+            }
+        }
+        Some("deleted") => {
+            let name = words.next().unwrap_or("").to_owned();
+            tell(game, player, &format!("Schematic `{name}` deleted."));
+        }
+        Some("error") => {
+            let op = words.next().unwrap_or("");
+            let name = words.next().unwrap_or("");
+            let why = words.next().unwrap_or("io");
+            tell(game, player, &schematic_error(op, name, why));
+        }
+        _ => {}
+    }
+}
+
+/// A part of the file the player sends; whether the whole file is there.
+fn schematic_take_part(player: u128, index: usize, count: usize, bytes: &[u8]) -> bool {
+    let mut guard = SCHEMATICS_IN.lock().unwrap_or_else(|e| e.into_inner());
+    let map = guard.get_or_insert_with(HashMap::new);
+    let entry = map.entry(player).or_insert_with(|| Incoming {
+        count,
+        parts: Vec::new(),
+        got: 0,
+    });
+    entry.count = count;
+    if entry.parts.len() <= index {
+        entry.parts.resize(index + 1, None);
+    }
+    if entry.parts[index].is_none() {
+        entry.parts[index] = Some(bytes.to_vec());
+        entry.got += 1;
+    }
+    entry.got >= count
+}
+
+/// The file the player sent, whole.
+fn schematic_finished(player: u128) -> Option<Vec<u8>> {
+    let mut guard = SCHEMATICS_IN.lock().unwrap_or_else(|e| e.into_inner());
+    let map = guard.get_or_insert_with(HashMap::new);
+    let entry = map.remove(&player)?;
+    let mut out = Vec::new();
+    for part in entry.parts.into_iter().flatten() {
+        out.extend_from_slice(&part);
+    }
+    Some(out)
+}
+
+/// The file the player sent is a schematic: into their clipboard.
+fn schematic_loaded(game: &mut Game<'_>, player: u128, name: &str, data: &[u8]) {
+    let build = match we_core::Schematic::decode(data) {
+        Ok(build) => build,
+        Err(why) => {
+            tell(game, player, &format!("The file `{name}` is not a schematic: {why}"));
+            return;
+        }
+    };
+    if let Err(why) = we_core::check_limit(build.blocks.len() as u64) {
+        tell(game, player, &why);
+        return;
+    }
+    let blocks = build.blocks.len();
+    {
+        let mut guard = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+        guard
+            .get_or_insert_with(Sessions::default)
+            .get(player)
+            .clipboard = Some(build.to_clipboard());
+    }
+    tell(
+        game,
+        player,
+        &format!("Schematic `{name}` loaded: {blocks} blocks. Put it down with /we paste."),
+    );
+}
+
+/// What the client could not do.
+fn schematic_error(op: &str, name: &str, why: &str) -> String {
+    match why {
+        "not found" => format!("There is no schematic called `{name}`."),
+        "broken" => format!("The file `{name}` is not a schematic."),
+        _ => match op {
+            "write" => format!("The schematic `{name}` cannot be written."),
+            "delete" => format!("The schematic `{name}` cannot be deleted."),
+            _ => format!("The schematic `{name}` cannot be read."),
+        },
+    }
+}
+
+/// A line in the chat of a player.
+fn tell(game: &mut Game<'_>, player: u128, line: &str) {
+    let host: &mut dyn crate::mod_api::Host = game;
+    host.tell(player, Text::literal(line));
 }
 
 /// The wand in the acting player's hand: the player, when it is one with

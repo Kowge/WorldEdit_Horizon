@@ -50,6 +50,14 @@ file = "crates/horizon-client/src/game.rs"
 name = "we_mods_ui"
 source = "mods_ui.rs"
 
+# The client's half: the schematics are the player's own files, so the
+# client keeps them.
+[[module]]
+id = "schematics_client"
+file = "crates/horizon-client/src/game.rs"
+name = "we_schematics_client"
+source = "schematics_client.rs"
+
 [[injection]]
 id = "register"
 kind = "HEAD"
@@ -135,6 +143,7 @@ kind = "HEAD"
 target = "horizon_client::game::native_hooks::Game<'_>::native_net_from_server"
 helper = "net_helper.rs"
 bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "channel", ty = "&str", value = "channel" },
   { name = "data", ty = "&[u8]", value = "data" },
 ]
