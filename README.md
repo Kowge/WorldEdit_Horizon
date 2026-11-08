@@ -40,7 +40,7 @@ markdown
 2. Open the **Horizon** launcher, go to **Mods** -> **Install from Link**.
 3. Simply paste this GitHub link directly inside the launcher, and the mod will install automatically!
  #### Способ 2 \ Method 2 \ 
-1. Download [worldedit-0.6.0.hnmod](https://github.com/Kowge/WorldEdit_Horizon/releases). / Скачайте [worldedit-0.6.0.hnmod](https://github.com/Kowge/WorldEdit_Horizon/releases).
+1. Download [worldedit_horizon](https://github.com/Kowge/WorldEdit_Horizon/releases). / Скачайте [worldedit_horizon](https://github.com/Kowge/WorldEdit_Horizon/releases).
 2. Open the Horizon launcher → **Mods** → **Add mods** and pick the file. / Лаунчер Horizon → **Моды** → **Добавить моды** → выберите файл.
 3. Enable **Settings → Native mods (experimental)** and press **Build** (the first build takes a while). / Включите **Настройки → Нативные моды** и нажмите **Собрать** (первая сборка долгая).
 4. Launch the **Native mods** instance, enter a world and switch to creative: `/gamemode creative`. / Запустите сборку **Native mods**, войдите в мир и включите creative.
