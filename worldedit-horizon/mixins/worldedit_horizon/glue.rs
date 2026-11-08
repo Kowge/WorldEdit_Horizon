@@ -223,7 +223,7 @@ wand | brush <shape> [sizes] <pattern> | brush radius <n> | brush distance <n> (
 expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
-clearclipboard | stack <n> <dir> | move <n> <dir> | undo [n] | redo [n] | physics [on|off] | drain | fixwater | fixlava | smooth [n] | limit [blocks|radius|history <n>|reset]. \
+clearclipboard | stack <n> <dir> | move <n> <dir> | undo [n] | redo [n] | physics [on|off] | drain | fixwater | fixlava | smooth [n] | limit [blocks|radius|distance|history <n>|reset]. \
 Patterns: stone, 50%stone,dirt. Directions: north south east west up down.";
 
 /// A player's command, when it is WorldEdit's.
@@ -419,7 +419,10 @@ fn brush_command(
         };
         let brush = brush.with_distance(distance)?;
         let line = match brush.distance {
-            Some(_) => format!("The brush is {}. It works along your view.", brush.describe()),
+            Some(_) => format!(
+                "The brush is {}. It works on the block you look at.",
+                brush.describe()
+            ),
             None => format!("The brush is {}. It works where you use it.", brush.describe()),
         };
         session.brush = Some(brush);
@@ -453,10 +456,22 @@ fn brush_command(
         let g: &Game<'_> = game;
         we_core::Brush::parse(text, &|name| block_id(g, name))?
     };
-    let line = format!(
-        "The brush is {}. Click a block to paint it; `/we brush off` stops it.",
-        brush.describe()
-    );
+    // The distance stays: the new brush works the way the old one did.
+    let brush = match session.brush.as_ref() {
+        Some(old) => brush.with_distance_of(old)?,
+        None => brush,
+    };
+    let line = if brush.distance.is_some() {
+        format!(
+            "The brush is {}. Click to paint the block you look at; `/we brush off` stops it.",
+            brush.describe()
+        )
+    } else {
+        format!(
+            "The brush is {}. Click a block to paint it; `/we brush off` stops it.",
+            brush.describe()
+        )
+    };
     session.brush = Some(brush);
     Ok(line)
 }
@@ -484,8 +499,15 @@ fn brush_target(
     let eye = eyes(player);
     let dir = gaze(player);
     let air = block_id(game, "air").unwrap_or(0);
-    // The first block along the view, up to 64 blocks away.
-    let ray = we_core::ray_blocks(&GameReader { game }, eye, dir, 64.0, air, own);
+    // The first block along the view, as far as the brush may reach.
+    let ray = we_core::ray_blocks(
+        &GameReader { game },
+        eye,
+        dir,
+        f64::from(we_core::max_distance()),
+        air,
+        own,
+    );
     if let Some(hit) = ray.hit() {
         // The blocks the player is in are not painted.
         if own_blocks(player).contains(&hit) {
@@ -513,10 +535,17 @@ fn brush_way(
 }
 
 /// The block the player looks at: the first one that is not air along the
-/// view, up to 64 blocks away.
+/// view, as far as the brush may reach.
 fn view_block(game: &Game<'_>, player: &NativeServerPlayer, own: &HashSet<Pos>) -> Option<Pos> {
     let air = block_id(game, "air").unwrap_or(0);
-    let ray = we_core::ray_blocks(&GameReader { game }, eyes(player), gaze(player), 64.0, air, own);
+    let ray = we_core::ray_blocks(
+        &GameReader { game },
+        eyes(player),
+        gaze(player),
+        f64::from(we_core::max_distance()),
+        air,
+        own,
+    );
     ray.hit()
 }
 

@@ -17,6 +17,11 @@ pub const MAX_BLOCKS: u64 = 500_000;
 pub const MAX_RADIUS: i32 = 128;
 /// How many edits a player can undo.
 pub const HISTORY: usize = 20;
+/// How far ahead of the player a brush puts its shape when there is nothing
+/// to paint.
+pub const MAX_DISTANCE: i32 = 64;
+/// The farthest a brush may reach when the limit allows it.
+pub const MAX_DISTANCE_LIMIT: i32 = 256;
 
 /// The operator level (`ops.json`, 0 to 4) a player needs for any `/we`
 /// operation or a wand click: a game master, like vanilla's `/fill`.
@@ -40,6 +45,7 @@ pub fn permitted(permission: u8, sub: Option<&str>) -> bool {
 static BLOCKS_NOW: AtomicU64 = AtomicU64::new(MAX_BLOCKS);
 static RADIUS_NOW: AtomicI32 = AtomicI32::new(MAX_RADIUS);
 static HISTORY_NOW: AtomicUsize = AtomicUsize::new(HISTORY);
+static DISTANCE_NOW: AtomicI32 = AtomicI32::new(MAX_DISTANCE);
 
 /// The most blocks one command may touch now.
 pub fn max_blocks() -> u64 {
@@ -53,25 +59,31 @@ pub fn max_radius() -> i32 {
 pub fn history() -> usize {
     HISTORY_NOW.load(Ordering::Relaxed)
 }
+/// How far ahead of the player a brush reaches now, in blocks.
+pub fn max_distance() -> i32 {
+    DISTANCE_NOW.load(Ordering::Relaxed)
+}
 
 /// The limits as a line.
 pub fn limits() -> String {
     format!(
-        "Limits: blocks {} | radius {} | history {}. Change: limit blocks|radius|history <n>, limit reset.",
+        "Limits: blocks {} | radius {} | distance {} | history {}. Change: limit blocks|radius|distance|history <n>, limit reset.",
         max_blocks(),
         max_radius(),
+        max_distance(),
         history()
     )
 }
 
-/// Sets one limit (`blocks`, `radius`, `history`) or puts them all back
-/// (`reset`); the line to tell the player.
+/// Sets one limit (`blocks`, `radius`, `distance`, `history`) or puts them all
+/// back (`reset`); the line to tell the player.
 pub fn set_limit(what: &str, value: Option<i64>) -> Result<String, String> {
     match (what, value) {
         ("reset", _) => {
             BLOCKS_NOW.store(MAX_BLOCKS, Ordering::Relaxed);
             RADIUS_NOW.store(MAX_RADIUS, Ordering::Relaxed);
             HISTORY_NOW.store(HISTORY, Ordering::Relaxed);
+            DISTANCE_NOW.store(MAX_DISTANCE, Ordering::Relaxed);
         }
         ("blocks", Some(v)) if (1..=20_000_000).contains(&v) => {
             BLOCKS_NOW.store(v as u64, Ordering::Relaxed)
@@ -79,13 +91,19 @@ pub fn set_limit(what: &str, value: Option<i64>) -> Result<String, String> {
         ("radius", Some(v)) if (1..=1024).contains(&v) => {
             RADIUS_NOW.store(v as i32, Ordering::Relaxed)
         }
+        ("distance", Some(v)) if (1..=MAX_DISTANCE_LIMIT as i64).contains(&v) => {
+            DISTANCE_NOW.store(v as i32, Ordering::Relaxed)
+        }
         ("history", Some(v)) if (1..=200).contains(&v) => {
             HISTORY_NOW.store(v as usize, Ordering::Relaxed)
         }
         ("blocks", _) => return Err("blocks: 1 to 20000000.".to_owned()),
         ("radius", _) => return Err("radius: 1 to 1024.".to_owned()),
+        ("distance", _) => {
+            return Err(format!("distance: 1 to {MAX_DISTANCE_LIMIT}."));
+        }
         ("history", _) => return Err("history: 1 to 200.".to_owned()),
-        _ => return Err("limit blocks|radius|history <n>, or limit reset.".to_owned()),
+        _ => return Err("limit blocks|radius|distance|history <n>, or limit reset.".to_owned()),
     }
     Ok(limits())
 }
@@ -1404,8 +1422,8 @@ impl Brush {
     /// works where it was used.
     pub fn with_distance(&self, distance: Option<i32>) -> Result<Brush, String> {
         if let Some(d) = distance {
-            if !(1..=64).contains(&d) {
-                return Err("The distance is 1 to 64 blocks.".to_owned());
+            if !(1..=max_distance()).contains(&d) {
+                return Err(format!("The distance is 1 to {} blocks.", max_distance()));
             }
         }
         Ok(Brush {
@@ -1415,6 +1433,15 @@ impl Brush {
             text: self.text.clone(),
             distance,
         })
+    }
+
+    /// The same brush, working the way `other` worked: a new brush keeps the
+    /// distance of the old one.
+    pub fn with_distance_of(&self, other: &Brush) -> Result<Brush, String> {
+        match other.distance {
+            Some(distance) => self.with_distance(Some(distance.min(max_distance()))),
+            None => Ok(self.clone()),
+        }
     }
 
     /// The brush as the messages write it.
@@ -2607,7 +2634,39 @@ mod tests {
         // And it can be taken away again.
         assert_eq!(far.with_distance(None).unwrap().distance, None);
         // A distance out of reach is refused.
-        assert!(b.with_distance(Some(100)).is_err());
+        assert!(b.with_distance(Some(300)).is_err());
+    }
+
+    #[test]
+    fn the_distance_has_a_limit_of_its_own() {
+        let b = Brush::parse("sphere 2 stone", &names).unwrap();
+        // The limit goes up to 256 blocks.
+        assert!(set_limit("distance", Some(256)).is_ok());
+        assert!(b.with_distance(Some(200)).is_ok());
+        // And no further.
+        assert!(set_limit("distance", Some(300)).is_err());
+        assert!(set_limit("distance", Some(0)).is_err());
+        // The old limit comes back.
+        set_limit("reset", None).unwrap();
+        assert_eq!(max_distance(), MAX_DISTANCE);
+    }
+
+    #[test]
+    fn a_new_brush_keeps_the_distance_of_the_old_one() {
+        let old = Brush::parse("sphere 2 stone", &names)
+            .unwrap()
+            .with_distance(Some(20))
+            .unwrap();
+        let new = Brush::parse("sphere 4 dirt", &names).unwrap();
+        let new = new.with_distance_of(&old).unwrap();
+        // The distance stays.
+        assert_eq!(new.distance, Some(20));
+        // The shape and the pattern are the new ones.
+        assert_eq!(new.sizes, [4, 0, 0]);
+        assert_eq!(new.text, "dirt");
+        // A brush without a distance gives none.
+        let plain = Brush::parse("sphere 4 dirt", &names).unwrap();
+        assert_eq!(plain.with_distance_of(&plain).unwrap().distance, None);
     }
 
     #[test]

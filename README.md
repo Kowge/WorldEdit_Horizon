@@ -31,7 +31,7 @@
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move.
 - ↩️ **Undo / redo** with configurable history.
 - 🎲 **Patterns** — `stone`, `0` (air), `stone,dirt`, `30%stone,dirt`.
-- 🔧 **In-game limits** — `/we limit` changes block, radius and history limits live.
+- 🔧 **In-game limits** — `/we limit` changes block, radius, distance and history limits live.
 - 🔇 **No item drops** — edits do not pop torches/flowers (toggle with `/we physics`).
 
 ## 📦 Installation
@@ -120,8 +120,9 @@ How the sizes work:
 - The shapes are the selection's own: `sphere <radius>`, `cylinder <radius> <height>`, `cube <side>`, `ellipsoid <rx> <ry> <rz>`.
 - The pattern is a block or a mix, as everywhere else: `stone`, `30%stone,dirt`, and `0` for air.
 - `/we brush radius 7` sets the radius of the armed brush, `/we brush radius +1` grows it and `/we brush radius -1` shrinks it, so you can reach further without retyping the whole brush. A radius of 0 paints the single block you click.
-- **Work on what you look at**: `/we brush distance 20` makes the brush work on the block under your view, up to 64 blocks away, instead of on the block you click: the shape sits in the middle of that block and nothing is painted on the way there. Where there is nothing at all — the sky — the shape goes 20 blocks ahead instead, so you can put blocks up in the air. Both buttons work that way: the left click paints, the right click erases. `/we brush distance off` puts it back.
+- **Work on what you look at**: `/we brush distance 20` makes the brush work on the block under your view, as far as the brush reaches (64 blocks by default, 256 with `/we limit distance 256`), instead of on the block you click: the shape sits in the middle of that block and nothing is painted on the way there. Where there is nothing at all — the sky — the shape goes 20 blocks ahead instead, so you can put blocks up in the air. Both buttons work that way: the left click paints, the right click erases. `/we brush distance off` puts it back.
 - The brush goes through the blocks it covered last, as if they were air: it does not shoot at its own work, so a second click does the same as the first one.
+- A new brush keeps the distance of the old one: `/we brush sphere 4 dirt` changes the shape and the pattern, not the distance.
 - `/we brush at` paints right now on the block under your view, without a click; `/we brush erase at` erases there.
 - The brush belongs to you alone. `/we brush` says which one is armed, `/we brush off` puts it away and the wand selects the corners again.
 - A stroke is one edit: `/we undo` takes it back.
@@ -204,6 +205,7 @@ No selection needed.
 | `/we limit` | Show current limits |
 | `/we limit blocks <n>` | Max blocks per command (1–20,000,000) |
 | `/we limit radius <n>` | Max shape radius/size (1–1024) |
+| `/we limit distance <n>` | How far a brush reaches (1–256, 64 by default) |
 | `/we limit history <n>` | How many edits undo keeps (1–200) |
 | `/we limit reset` | Restore defaults |
 
@@ -224,7 +226,7 @@ Limits are shared by all players and reset when the game restarts; only an opera
 ## Patterns and limits
 
 - `stone` = one block; `0` = air; `stone,dirt` = even mix; `30%stone,dirt` = 30% stone, the rest dirt. The `minecraft:` prefix is optional.
-- By default at most 500,000 blocks per command, shape radius and size up to 128, history keeps 20 edits and resets when you leave the world. Only an operator of level 4 changes the limits (`/we limit`).
+- By default at most 500,000 blocks per command, shape radius and size up to 128, a brush reaches 64 blocks and history keeps 20 edits, and it resets when you leave the world. Only an operator of level 4 changes the limits (`/we limit`). A brush may reach 256 blocks: `/we limit distance 256`.
 
 ---
 
