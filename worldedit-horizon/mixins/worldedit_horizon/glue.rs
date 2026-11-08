@@ -11,6 +11,8 @@ use crate::game::{
     },
 };
 use horizon_client::text::{self, Text};
+use horizon_world::block_state_properties::BlockProperties;
+use horizon_world::chunk::BlockState;
 use horizon_world::registry::BlockStateId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -19,7 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "1.2.1";
+pub const VERSION: &str = "1.3.0";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
@@ -103,16 +105,77 @@ impl World for GameReader<'_, '_> {
     }
 }
 
-fn block_id(game: &Game<'_>, name: &str) -> Option<u32> {
-    let name = name.to_ascii_lowercase();
+/// What a block name stands for: the state to put down, and every state of
+/// the block. The game knows the blocks and their states; the rules only ask
+/// what a name means.
+fn resolve_block(game: &Game<'_>, name: &we_core::BlockName) -> Result<we_core::Block, String> {
+    let block = name.name.to_ascii_lowercase();
     // `0` is air, as in WorldEdit: `/we set 0` clears the selection.
-    let name = if name == "0" { "air".to_owned() } else { name };
-    let full = if name.contains(':') {
-        name
+    let block = if block == "0" { "air".to_owned() } else { block };
+    let full = if block.contains(':') {
+        block.clone()
     } else {
-        format!("minecraft:{name}")
+        format!("minecraft:{block}")
     };
-    game.pack.assets.registry.default_state(&full).map(|s| s.0)
+    let registry = &game.pack.assets.registry;
+    let Some(default) = registry.default_state(&full) else {
+        return Err(format!("Unknown block `{block}`."));
+    };
+    // Every state of the block: the ones the registry knows under that name.
+    let states: Vec<u32> = (0..registry.len())
+        .filter(|&i| {
+            registry
+                .state(BlockStateId(i as u32))
+                .is_some_and(|state| state.name == full)
+        })
+        .map(|i| i as u32)
+        .collect();
+    let Some(default_state) = registry.state(default) else {
+        return Err(format!("Unknown block `{block}`."));
+    };
+    // The properties of the block, with the ones the player gave.
+    let mut properties = BlockProperties::new();
+    for (key, value) in default_state.properties.iter() {
+        properties.insert(key.clone(), value.clone());
+    }
+    for (key, value) in &name.properties {
+        if !properties.contains_key(key) {
+            return Err(format!("`{key}` is not a property of `{block}`."));
+        }
+        let values = registry.property_values(&full, key.as_str());
+        if !values.contains(&value.as_str()) {
+            return Err(format!(
+                "`{value}` is not a value of `{key}` of `{block}` ({}).",
+                values.join(", ")
+            ));
+        }
+        properties.insert(key.clone(), value.clone());
+    }
+    if name.properties.is_empty() {
+        return Ok(we_core::Block {
+            state: default.0,
+            exact: None,
+            states,
+        });
+    }
+    let wanted = BlockState {
+        name: full.clone(),
+        properties,
+    };
+    let Some(id) = registry.id(&wanted) else {
+        return Err(format!("`{block}` has no state with those properties."));
+    };
+    Ok(we_core::Block {
+        state: id.0,
+        exact: Some(id.0),
+        states,
+    })
+}
+
+/// The default state of a block by its name.
+fn block_id(game: &Game<'_>, name: &str) -> Option<u32> {
+    let name = we_core::BlockName::parse(name).ok()?;
+    resolve_block(game, &name).ok().map(|block| block.state)
 }
 
 fn feet(player: &NativeServerPlayer) -> Pos {
@@ -228,7 +291,7 @@ expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | r
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
 clearclipboard | schematic save|load|list|delete <name> (the build of the selection, kept in a file of the world's folder; /we paste puts it down) | stack <n> <dir> | move <n> <dir> | undo [n] | redo [n] | physics [on|off] | drain | fixwater | fixlava | smooth [n] | limit [blocks|radius|distance|history <n>|reset]. \
-Patterns: stone, 50%stone,dirt. Directions: north south east west up down.";
+Patterns: stone, 50%stone,dirt, oak_log[axis=x]. Directions: north south east west up down.";
 
 /// A player's command, when it is WorldEdit's.
 pub fn perform(
@@ -364,7 +427,7 @@ fn describe(c: &Region) -> String {
 }
 
 fn pattern(game: &Game<'_>, text: &str) -> Result<Pattern, String> {
-    Pattern::parse(text, &|name| block_id(game, name))
+    Pattern::parse(text, &|name| resolve_block(game, name))
 }
 
 /// The message when the player has no brush.
@@ -464,7 +527,7 @@ fn brush_command(
     // A new brush: `brush sphere 5 stone`.
     let brush = {
         let g: &Game<'_> = game;
-        we_core::Brush::parse(text, &|name| block_id(g, name))?
+        we_core::Brush::parse(text, &|name| resolve_block(g, name))?
     };
     // The distance stays: the new brush works the way the old one did.
     let brush = match session.brush.as_ref() {
@@ -879,7 +942,7 @@ fn run(
                 Some(rest) => (true, rest),
                 None => (false, text),
             };
-            let from = we_core::parse_blocks(text, &|n| block_id(game, n))?;
+            let from = we_core::parse_blocks(text, &|n| resolve_block(game, n))?;
             let to = pattern(game, args.get(2).copied().unwrap_or_default())?;
             let edit = {
                 let mut w = GameWorld { game, dimension };
@@ -897,7 +960,7 @@ fn run(
             let c = region(session, player)?;
             we_core::check_limit(c.volume())?;
             let of = we_core::parse_blocks(args.get(1).copied().unwrap_or_default(), &|n| {
-                block_id(game, n)
+                resolve_block(game, n)
             })?;
             let w = GameWorld { game, dimension };
             Ok(format!(
@@ -988,10 +1051,20 @@ fn run(
                 };
                 we_core::distribution(&w, &c.positions())
             };
-            let total: u64 = dist.iter().map(|(_, n)| n).sum();
-            let mut lines = Vec::new();
-            for (id, n) in dist.iter().take(10) {
+            // The blocks by name: the states of a block are one entry, so a
+            // log of every axis is one log.
+            let mut by_name: Vec<(String, u64)> = Vec::new();
+            for (id, n) in dist.iter() {
                 let name = game.res.facts().get(BlockStateId(*id)).name.to_string();
+                match by_name.iter_mut().find(|(other, _)| *other == name) {
+                    Some((_, count)) => *count += n,
+                    None => by_name.push((name, *n)),
+                }
+            }
+            by_name.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            let total: u64 = by_name.iter().map(|(_, n)| n).sum();
+            let mut lines = Vec::new();
+            for (name, n) in by_name.iter().take(10) {
                 lines.push(format!("{n} {name}"));
             }
             Ok(format!("{total} blocks: {}.", lines.join(", ")))

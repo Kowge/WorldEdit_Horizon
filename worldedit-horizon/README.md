@@ -24,7 +24,9 @@ Every command is under `/we`: `/we set stone`, `/we copy`, `/we undo`. The serve
 
 An edit keeps the dimension it was made in. `/we undo` and `/we redo` in another dimension are refused with a message saying where the edit was made, and the edit stays in the history: the game writes only in the level the player is in, so nothing is undone in the wrong place.
 
-Patterns: `stone`, `50%stone,dirt`. Directions: `north south east west up down`.
+Patterns: `stone`, `50%stone,dirt`, `oak_log[axis=x]`. Directions: `north south east west up down`.
+
+A block may name the state it means: `/we set oak_log[axis=x]` puts the log down lying along the x axis, and `/we replace oak_log stone` takes every log whatever its axis, while `/we replace oak_log[axis=x] stone` takes only those along the x axis.
 
 ## The selection is drawn on the client
 

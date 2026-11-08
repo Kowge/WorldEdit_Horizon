@@ -242,6 +242,8 @@ Limits are shared by all players and reset when the game restarts; only an opera
 ## Patterns and limits
 
 - `stone` = one block; `0` = air; `stone,dirt` = even mix; `30%stone,dirt` = 30% stone, the rest dirt. The `minecraft:` prefix is optional.
+- A block may name the state it means: `oak_log[axis=x]`, `chest[facing=north]`, `oak_stairs[facing=east,half=top]`. The block is put down in that state.
+- In `/we replace` and `/we count`, a name without a state stands for every state of the block (all the logs, whatever their axis), and a name with one stands for that state alone.
 - By default at most 500,000 blocks per command, shape radius and size up to 128, a brush reaches 64 blocks and history keeps 20 edits, and it resets when you leave the world. Only an operator of level 4 changes the limits (`/we limit`). A brush may reach 256 blocks: `/we limit distance 256`.
 
 ---

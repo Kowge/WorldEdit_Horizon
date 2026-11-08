@@ -1054,8 +1054,95 @@ pub struct Pattern {
     total: f64,
 }
 
-/// Block ids by name; `None` for an unknown block.
-pub type Resolver<'a> = &'a dyn Fn(&str) -> Option<u32>;
+/// What a block name stands for: the game knows the blocks and their states,
+/// and says what a name means.
+pub type Resolver<'a> = &'a dyn Fn(&BlockName) -> Result<Block, String>;
+
+/// A block a command names: `oak_log` or `oak_log[axis=x]`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlockName {
+    /// The block's name, as the player wrote it: `oak_log`.
+    pub name: String,
+    /// The properties the player gave, in the order they wrote them.
+    pub properties: Vec<(String, String)>,
+}
+
+impl BlockName {
+    /// A block name: `oak_log`, or `oak_log[axis=x,half=top]`.
+    pub fn parse(text: &str) -> Result<BlockName, String> {
+        let text = text.trim();
+        let Some(open) = text.find('[') else {
+            return Ok(BlockName {
+                name: text.to_owned(),
+                properties: Vec::new(),
+            });
+        };
+        if !text.ends_with(']') {
+            return Err(format!("The block `{text}` is missing its `]`."));
+        }
+        let name = text[..open].trim().to_owned();
+        if name.is_empty() {
+            return Err("A block needs a name.".to_owned());
+        }
+        let mut properties = Vec::new();
+        for part in text[open + 1..text.len() - 1]
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
+            let Some((key, value)) = part.split_once('=') else {
+                return Err(format!(
+                    "The property `{part}` of `{name}` needs a value, as in `axis=x`."
+                ));
+            };
+            let (key, value) = (key.trim(), value.trim());
+            if key.is_empty() || value.is_empty() {
+                return Err(format!(
+                    "The property `{part}` of `{name}` needs a name and a value."
+                ));
+            }
+            properties.push((key.to_owned(), value.to_owned()));
+        }
+        Ok(BlockName { name, properties })
+    }
+}
+
+/// What a block name stands for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Block {
+    /// The state to put down: the one the name gives, or the block's default.
+    pub state: u32,
+    /// The state the name gives, when it gives one: only that state is meant
+    /// then, and not every state of the block.
+    pub exact: Option<u32>,
+    /// Every state of the block: a name without properties stands for all of
+    /// them.
+    pub states: Vec<u32>,
+}
+
+/// The items of a list, split at the commas that are not inside brackets:
+/// `oak_stairs[facing=north,half=top],stone` is two items.
+pub fn split_items(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (i, c) in text.char_indices() {
+        match c {
+            '[' => depth += 1,
+            ']' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                out.push(&text[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&text[start..]);
+    out.into_iter()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .collect()
+}
 
 impl Pattern {
     pub fn single(block: u32) -> Self {
@@ -1066,7 +1153,7 @@ impl Pattern {
     }
     pub fn parse(text: &str, resolve: Resolver<'_>) -> Result<Pattern, String> {
         let mut named: Vec<(Option<f64>, u32)> = Vec::new();
-        for part in text.split(',').filter(|p| !p.is_empty()) {
+        for part in split_items(text) {
             let (weight, name) = match part.split_once('%') {
                 Some((w, n)) => {
                     let w: f64 = w
@@ -1079,8 +1166,8 @@ impl Pattern {
                 }
                 None => (None, part),
             };
-            let block = resolve(name).ok_or_else(|| format!("Unknown block `{name}`."))?;
-            named.push((weight, block));
+            let block = resolve(&BlockName::parse(name)?)?;
+            named.push((weight, block.state));
         }
         if named.is_empty() {
             return Err("A pattern needs a block.".to_owned());
@@ -1128,11 +1215,17 @@ impl Pattern {
     }
 }
 
-/// A block set: `stone,dirt`.
+/// The states a list of block names stands for: a name without properties
+/// stands for every state of the block, a name with them for that state
+/// alone.
 pub fn parse_blocks(text: &str, resolve: Resolver<'_>) -> Result<Vec<u32>, String> {
     let mut out = Vec::new();
-    for name in text.split(',').filter(|n| !n.is_empty()) {
-        out.push(resolve(name).ok_or_else(|| format!("Unknown block `{name}`."))?);
+    for name in split_items(text) {
+        let block = resolve(&BlockName::parse(name)?)?;
+        match block.exact {
+            Some(state) => out.push(state),
+            None => out.extend(block.states),
+        }
     }
     if out.is_empty() {
         return Err("A block is needed.".to_owned());
@@ -2356,13 +2449,43 @@ mod tests {
         }
     }
 
-    fn names(n: &str) -> Option<u32> {
-        match n {
-            "air" => Some(0),
-            "stone" => Some(1),
-            "dirt" => Some(2),
-            "glass" => Some(3),
-            _ => None,
+    /// The blocks the tests know: `air`, `stone`, `dirt`, `glass`, and `log`,
+    /// which has an `axis` like a log in the game.
+    fn names(name: &BlockName) -> Result<Block, String> {
+        let plain = |state: u32| Block {
+            state,
+            exact: None,
+            states: vec![state],
+        };
+        match name.name.as_str() {
+            "air" => Ok(plain(0)),
+            "stone" => Ok(plain(1)),
+            "dirt" => Ok(plain(2)),
+            "glass" => Ok(plain(3)),
+            "log" => {
+                // Three axes, the middle one the default.
+                let states = vec![10, 11, 12];
+                let mut state = 11;
+                let mut exact = None;
+                for (key, value) in &name.properties {
+                    if key != "axis" {
+                        return Err(format!("`{key}` is not a property of `log`."));
+                    }
+                    state = match value.as_str() {
+                        "x" => 10,
+                        "y" => 11,
+                        "z" => 12,
+                        other => return Err(format!("`{other}` is not a value of `axis`.")),
+                    };
+                    exact = Some(state);
+                }
+                Ok(Block {
+                    state,
+                    exact,
+                    states,
+                })
+            }
+            other => Err(format!("Unknown block `{other}`.")),
         }
     }
 
@@ -2451,6 +2574,90 @@ mod tests {
         assert_eq!(dimension_name("minecraft:the_nether"), "the Nether");
         assert_eq!(dimension_name("minecraft:the_end"), "the End");
         assert_eq!(dimension_name("some:other_world"), "other world");
+    }
+
+    #[test]
+    fn a_block_name_carries_its_state() {
+        let name = BlockName::parse("oak_log[axis=x,half=top]").unwrap();
+        assert_eq!(name.name, "oak_log");
+        assert_eq!(
+            name.properties,
+            vec![
+                ("axis".to_owned(), "x".to_owned()),
+                ("half".to_owned(), "top".to_owned())
+            ]
+        );
+        let plain = BlockName::parse("stone").unwrap();
+        assert_eq!(plain.name, "stone");
+        assert!(plain.properties.is_empty());
+        // A broken name is refused.
+        assert!(BlockName::parse("oak_log[axis=x").is_err());
+        assert!(BlockName::parse("oak_log[axis]").is_err());
+        assert!(BlockName::parse("oak_log[=x]").is_err());
+    }
+
+    #[test]
+    fn a_list_is_split_outside_the_brackets() {
+        let items = split_items("stone,oak_stairs[facing=north,half=top],dirt");
+        assert_eq!(
+            items,
+            vec!["stone", "oak_stairs[facing=north,half=top]", "dirt"]
+        );
+    }
+
+    #[test]
+    fn a_pattern_puts_the_state_it_names() {
+        // The state the name gives is the one that is put down.
+        let p = Pattern::parse("log[axis=x]", &names).unwrap();
+        assert_eq!(p.pick([1, 2, 3]), 10);
+        // Without a state, the block's default is put down.
+        let p = Pattern::parse("log", &names).unwrap();
+        assert_eq!(p.pick([1, 2, 3]), 11);
+        // A state in a list of blocks is not cut in half.
+        let p = Pattern::parse("log[axis=z],stone", &names).unwrap();
+        let b = p.pick([1, 2, 3]);
+        assert!(b == 12 || b == 1, "{b}");
+        // A property the block does not have, and a value it does not take,
+        // are refused.
+        assert!(Pattern::parse("log[side=x]", &names).is_err());
+        assert!(Pattern::parse("log[axis=q]", &names).is_err());
+    }
+
+    #[test]
+    fn a_block_name_stands_for_every_state_of_the_block() {
+        // Without properties: every state of the block.
+        assert_eq!(parse_blocks("log", &names).unwrap(), vec![10, 11, 12]);
+        // With them: that state alone.
+        assert_eq!(parse_blocks("log[axis=x]", &names).unwrap(), vec![10]);
+        // A list of blocks is split at the commas outside the brackets.
+        assert_eq!(
+            parse_blocks("stone,log[axis=z]", &names).unwrap(),
+            vec![1, 12]
+        );
+    }
+
+    #[test]
+    fn a_replace_takes_the_states_the_name_stands_for() {
+        let mut w = Map::default();
+        // A log of every axis.
+        w.set([0, 0, 0], 10);
+        w.set([1, 0, 0], 11);
+        w.set([2, 0, 0], 12);
+        let positions = [[0, 0, 0], [1, 0, 0], [2, 0, 0]];
+        let to = Pattern::single(1);
+        // The state alone: only that log goes.
+        let one = parse_blocks("log[axis=x]", &names).unwrap();
+        replace(&mut w, &positions, &one, &to);
+        assert_eq!(w.get([0, 0, 0]), 1);
+        assert_eq!(w.get([1, 0, 0]), 11);
+        assert_eq!(w.get([2, 0, 0]), 12);
+        // Every state of the block: every log goes.
+        let all = parse_blocks("log", &names).unwrap();
+        replace(&mut w, &positions, &all, &to);
+        assert_eq!(
+            (w.get([0, 0, 0]), w.get([1, 0, 0]), w.get([2, 0, 0])),
+            (1, 1, 1)
+        );
     }
 
     #[test]
