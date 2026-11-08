@@ -5,7 +5,7 @@
 // The file is a module of game in the bundle and of this crate in its
 // tests, under the same name. Module payloads cannot start with inner
 // doc comments, so these are ordinary comments.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicI32, AtomicU64, AtomicUsize, Ordering};
 
 pub type Pos = [i32; 3];
@@ -1147,12 +1147,16 @@ pub struct Ray {
 /// The blocks a ray goes through from the eye along `dir`, up to `distance`
 /// blocks away. It stops at the first block that is not air, and that block is
 /// the last one. When it hits nothing, it goes on to the distance.
+///
+/// The blocks in `own` are as if they were air: the brush goes through the
+/// blocks it covered last, so that it does not shoot at its own work.
 pub fn ray_blocks(
     world: &impl World,
     eye: [f64; 3],
     dir: [f64; 3],
     distance: f64,
     air: u32,
+    own: &HashSet<Pos>,
 ) -> Ray {
     let mut blocks = Vec::new();
     if distance <= 0.0 {
@@ -1201,8 +1205,9 @@ pub fn ray_blocks(
             next[2] += delta[2];
         }
         blocks.push(pos);
-        // The first block that is not air ends the ray.
-        if world.get(pos) != air {
+        // The first block that is not air ends the ray. The blocks the brush
+        // covered last are as if they were air.
+        if world.get(pos) != air && !own.contains(&pos) {
             solid = true;
             break;
         }
@@ -1985,6 +1990,9 @@ pub struct Session {
     pub clipboard: Option<Clipboard>,
     /// The brush the player armed with `/we brush`, if any.
     pub brush: Option<Brush>,
+    /// The blocks the brush covered last: the brush goes through them as if
+    /// they were air, so that it does not shoot at its own work.
+    pub last_stroke: HashSet<Pos>,
     undo: Vec<Edit>,
     redo: Vec<Edit>,
 }
@@ -2633,7 +2641,7 @@ mod tests {
         let mut w = Map::default();
         w.set([0, 64, 5], 1);
         // The eye is in the middle of the block [0, 64, 0].
-        let ray = ray_blocks(&w, [0.5, 64.5, 0.5], [0.0, 0.0, 1.0], 20.0, 0);
+        let ray = ray_blocks(&w, [0.5, 64.5, 0.5], [0.0, 0.0, 1.0], 20.0, 0, &HashSet::new());
         assert!(ray.solid);
         // The block the eye is in is not in the way.
         assert!(!ray.blocks.contains(&[0, 64, 0]));
@@ -2646,11 +2654,35 @@ mod tests {
     #[test]
     fn a_ray_through_the_sky_goes_on_to_the_distance() {
         let w = Map::default();
-        let ray = ray_blocks(&w, [0.5, 64.5, 0.5], [0.0, 0.0, 1.0], 3.0, 0);
+        let ray = ray_blocks(&w, [0.5, 64.5, 0.5], [0.0, 0.0, 1.0], 3.0, 0, &HashSet::new());
         // It meets nothing.
         assert!(!ray.solid);
         // And it stops at the distance.
         assert_eq!(ray.blocks.last(), Some(&[0, 64, 3]));
+    }
+
+    #[test]
+    fn a_ray_goes_through_the_blocks_the_brush_covered_last() {
+        let mut w = Map::default();
+        // The ball the brush put up in the air.
+        for x in 0..=4 {
+            for y in 64..=68 {
+                for z in 13..=17 {
+                    w.set([x, y, z], 1);
+                }
+            }
+        }
+        let own: HashSet<Pos> = (0..=4)
+            .flat_map(|x| (64..=68).map(move |y| (x, y)))
+            .flat_map(|(x, y)| (13..=17).map(move |z| [x, y, z]))
+            .collect();
+        let ray = ray_blocks(&w, [0.5, 64.5, 0.5], [0.0, 0.0, 1.0], 20.0, 0, &own);
+        // The brush does not shoot at its own work: it meets nothing.
+        assert!(!ray.solid);
+        // Without that, the ball would end the ray.
+        let plain = ray_blocks(&w, [0.5, 64.5, 0.5], [0.0, 0.0, 1.0], 20.0, 0, &HashSet::new());
+        assert!(plain.solid);
+        assert_eq!(plain.blocks.last(), Some(&[0, 64, 13]));
     }
 
     #[test]

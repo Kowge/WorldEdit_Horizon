@@ -35,6 +35,8 @@ The selection is drawn where you look: a frame around the box of the selection a
 
 `/we brush distance <n>` makes the brush work along the line of sight instead of on the clicked block: it paints every block from the player's eyes to the first one that is not air, so the wand cuts a tunnel into whatever it looks at. Where there is nothing at all — the sky — the brush's shape goes `n` blocks ahead, so blocks can be put up in the air. Both the left click (paint) and the right click (erase) work that way, and `/we brush at` paints along the same line at once, `/we brush erase at` erases there.
 
+The brush goes through the blocks it covered last, as if they were air: it does not shoot at its own work, so a second click does the same as the first one instead of building a column out of the blocks of the first.
+
 The brush belongs to the player alone: `/we brush` says which one is armed and `/we brush off` puts it away, so the wand selects the corners again. A stroke is one edit in the history, so `/we undo` takes it back.
 
 ## Install

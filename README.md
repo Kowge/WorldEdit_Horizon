@@ -121,6 +121,7 @@ How the sizes work:
 - The pattern is a block or a mix, as everywhere else: `stone`, `30%stone,dirt`, and `0` for air.
 - `/we brush radius 7` sets the radius of the armed brush, `/we brush radius +1` grows it and `/we brush radius -1` shrinks it, so you can reach further without retyping the whole brush. A radius of 0 paints the single block you click.
 - **Work along your view**: `/we brush distance 20` makes the brush work along the line of sight instead of on the block you click: it paints every block from your eyes to the first one that is not air, so the wand cuts a tunnel into whatever you look at. Where there is nothing at all — the sky — the brush's shape goes 20 blocks ahead, so you can put blocks up in the air. Both buttons work that way: the left click paints, the right click erases. `/we brush distance off` puts it back.
+- The brush goes through the blocks it covered last, as if they were air: it does not shoot at its own work, so a second click does the same as the first one instead of building a column out of the blocks of the first.
 - `/we brush at` paints right now along the same line, without a click; `/we brush erase at` erases there.
 - The brush belongs to you alone. `/we brush` says which one is armed, `/we brush off` puts it away and the wand selects the corners again.
 - A stroke is one edit: `/we undo` takes it back.
