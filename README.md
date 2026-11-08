@@ -1,5 +1,3 @@
-[README.1.md](https://github.com/user-attachments/files/34304671/README.1.md)
-markdown
 <p align="center">
   <img src="logo.png" width="128px" alt="Логотип мода" />
 </p>
@@ -10,7 +8,7 @@ markdown
 **A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
 **Мод в духе WorldEdit для клиента [Horizon](https://playhorizon.dev) — нативный мод (`.hnmod`)**
 
-![version](https://img.shields.io/badge/version-0.6.2-blue) ![game](https://img.shields.io/badge/Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v24-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
+![version](https://img.shields.io/badge/version-0.8.0-blue) ![game](https://img.shields.io/badge/Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v24-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
 
 </div>
 
@@ -20,6 +18,9 @@ markdown
 
 - 🪓 **Wooden axe wand** — left click = pos 1, right click = pos 2. Outside creative it is a normal axe. / **Топор-палочка**: ЛКМ — точка 1, ПКМ — точка 2. Вне creative это обычный топор.
 - 🎨 **Creative only, operators only** — every command works only in `/gamemode creative` and only for operators (permission level 2); `/we limit` needs level 4. / **Только creative, только операторы** — все команды работают только в `/gamemode creative` и только для операторов (уровень прав 2), `/we limit` — только для уровня прав 4.
+- 📍 **Exact corners** — `/we pos1 10,64,-5` and `/we pos2 10 64 -5` set a corner by coordinates; `/we hpos1` and `/we hpos2` take the block you look at. / **Точные углы** — `/we pos1 10,64,-5` и `/we pos2 10 64 -5` ставят угол по координатам; `/we hpos1` и `/we hpos2` берут блок, на который вы смотрите.
+- 📐 **Selection tools** — `/we trim` cuts the selection down to the blocks that are really there, `/we distr` counts what is inside. / **Работа с выделением** — `/we trim` ужимает выделение до непустых блоков, `/we distr` показывает состав.
+- 🕳️ **Digging** — `/we fill` and `/we fillr` fill the hole around you, `/we removeabove` and `/we removebelow` clear a column up or down. / **Копка** — `/we fill` и `/we fillr` заливают дыру вокруг вас, `/we removeabove` и `/we removebelow` чистят столб вверх или вниз.
 - 🧱 **Fill, replace, walls, faces, hollow, overlay, naturalize, line** / заливка, замена, стены, грани, выдалбливание, слой сверху, натурализация, линия.
 - ⚪ **Shapes** — spheres, cylinders, pyramids, solid or hollow (`hcyl`, `hsphere`, `hpyramid`). / **Фигуры** — шары, цилиндры, пирамиды, сплошные и полые.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`. / **Рельеф и жидкости**.
@@ -68,13 +69,20 @@ markdown
 All commands start with `/we`. They work only in creative mode (`/gamemode creative`) and for operators (permission level 2). `/we limit` needs permission level 4.
 Все команды начинаются с `/we`. Работают только в режиме creative (`/gamemode creative`) и только для операторов (уровень прав 2). `/we limit` — только для уровня прав 4.
 
+> RU: пишите с одним слешем — `/we set stone`. Двойной слеш (`//we set stone`) тоже выполнится (сервер срезает слэши), но чат подсвесит его как неизвестную команду.
+> EN: write it with one slash — `/we set stone`. The double slash (`//we set stone`) runs as well (the server cuts the slashes off), but the chat box marks it as an unknown command.
+
 ## Выделение / Selection
 
 | Команда / Command | RU | EN |
 |---|---|---|
 | `/we` | Справка | Show help |
 | `/we wand` | Выдать деревянный топор: ЛКМ по блоку — точка 1, ПКМ — точка 2. Вне creative топор обычный | Give the wooden axe: left click = pos 1, right click = pos 2. Outside creative it is a normal axe |
-| `/we pos1`, `/we pos2` | Поставить точку на блок, где вы стоите | Set a corner at the block you stand on |
+| `/we pos1 [координаты]`, `/we pos2 [координаты]` | Поставить точку на блок, где вы стоите, или по координатам (`10,64,-5` или `10 64 -5`) | Set a corner at the block you stand on, or by coordinates (`10,64,-5` or `10 64 -5`) |
+| `/we hpos1`, `/we hpos2` | Поставить точку на блок, на который вы смотрите | Set a corner at the block you are looking at |
+| `/we pos` | Обе точки сразу: где вы стоите и блок, на который вы смотрите | Both corners at once: where you stand and the block you look at |
+| `/we trim` | Ужать выделение до блоков, которые там действительно есть | Trim the selection down to the blocks that are really there |
+| `/we distr` | Показать, из чего состоит выделение и сколько чего | Show what the selection holds and how much of it |
 | `/we sel` (или `desel`) | Снять выделение | Clear the selection |
 | `/we size` | Показать размеры и число блоков выделения | Show selection size and block count |
 | `/we expand <n> [направление]` | Расширить выделение на n блоков. Без направления — туда, куда вы смотрите | Grow the selection by n blocks. No direction = the way you look |
@@ -104,6 +112,10 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we fixlava` | То же для лавы | The same for lava |
 | `/we smooth [n]` | Сгладить рельеф в выделении, n проходов (1–50, по умолчанию 1) | Smooth the terrain in the selection, n passes (1–50, default 1) |
 | `/we count <блоки>` | Посчитать блоки в выделении | Count blocks in the selection |
+| `/we fill <паттерн> <радиус> [глубина]` | Залить дыру вокруг вас: каждый столбец до первого блока | Fill the hole around you: each column down to the first block |
+| `/we fillr <паттерн> <радиус> [глубина]` | То же, но весь воздух внутри шара | The same, but the whole air of the ball |
+| `/we removeabove [размер] [высота]` | Убрать блоки над вами (квадрат `размер` × `высота`) | Remove the blocks above you (a `размер` × `высота` square) |
+| `/we removebelow [размер] [высота]` | Убрать блоки под вами | Remove the blocks below you |
 
 ## Фигуры вокруг ног / Shapes at your feet
 
@@ -175,7 +187,7 @@ EN: `drain` does not remove water inside waterlogged blocks (e.g. stairs). `smoo
 ## ⚠️ Known limitations / Ограничения
 
 - Selection grid is not implemented (no line-drawing API in Horizon). / Сетка выделения не реализована (в Horizon нет API линий).
-- `regen`, `hpos1/hpos2`, brushes and schematics are not implemented. / Не реализованы `regen`, `hpos`, кисти и схематики.
+- `regen`, brushes and schematics are not implemented. / Не реализованы `regen`, кисти и схематики.
 - `rotate` is named `/we rot` because vanilla already has `/rotate`. / Поворот буфера — `/we rot`, т. к. `/rotate` занят ванилью.
 - Block orientation (`facing`) is not rotated by `rot` / `flip`. / `rot` и `flip` не поворачивают ориентацию блоков.
 - Limits, physics mode and history are not saved between game launches. / Лимиты, режим физики и история не сохраняются между запусками.

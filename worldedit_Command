@@ -1,7 +1,10 @@
-# WorldEdit 0.6.2 — команды / Command reference
+# WorldEdit 0.8.0 — команды / Command reference
 
 Все команды начинаются с `/we`. Работают только в режиме creative (`/gamemode creative`) и только для операторов (уровень прав 2). `/we limit` — только для уровня прав 4.
 All commands start with `/we`. They work only in creative mode (`/gamemode creative`) and for operators (permission level 2). `/we limit` needs permission level 4.
+
+> RU: пишите с одним слешем — `/we set stone`. Двойной слеш (`//we set stone`) тоже выполнится (сервер срезает слэши), но чат подсвесит его как неизвестную команду.
+> EN: write it with one slash — `/we set stone`. The double slash (`//we set stone`) runs as well (the server cuts the slashes off), but the chat box marks it as an unknown command.
 
 ## Выделение / Selection
 
@@ -9,7 +12,11 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 |---|---|---|
 | `/we` | Справка | Show help |
 | `/we wand` | Выдать деревянный топор: ЛКМ по блоку — точка 1, ПКМ — точка 2. Вне creative топор обычный | Give the wooden axe: left click = pos 1, right click = pos 2. Outside creative it is a normal axe |
-| `/we pos1`, `/we pos2` | Поставить точку на блок, где вы стоите | Set a corner at the block you stand on |
+| `/we pos1 [координаты]`, `/we pos2 [координаты]` | Поставить точку на блок, где вы стоите, или по координатам (`10,64,-5` или `10 64 -5`) | Set a corner at the block you stand on, or by coordinates (`10,64,-5` or `10 64 -5`) |
+| `/we hpos1`, `/we hpos2` | Поставить точку на блок, на который вы смотрите | Set a corner at the block you are looking at |
+| `/we pos` | Обе точки сразу: где вы стоите и блок, на который вы смотрите | Both corners at once: where you stand and the block you look at |
+| `/we trim` | Ужать выделение до блоков, которые там действительно есть | Trim the selection down to the blocks that are really there |
+| `/we distr` | Показать, из чего состоит выделение и сколько чего | Show what the selection holds and how much of it |
 | `/we sel` (или `desel`) | Снять выделение | Clear the selection |
 | `/we size` | Показать размеры и число блоков выделения | Show selection size and block count |
 | `/we expand <n> [направление]` | Расширить выделение на n блоков. Без направления — туда, куда вы смотрите | Grow the selection by n blocks. No direction = the way you look |
@@ -39,6 +46,10 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we fixlava` | То же для лавы | The same for lava |
 | `/we smooth [n]` | Сгладить рельеф в выделении, n проходов (1–50, по умолчанию 1) | Smooth the terrain in the selection, n passes (1–50, default 1) |
 | `/we count <блоки>` | Посчитать блоки в выделении | Count blocks in the selection |
+| `/we fill <паттерн> <радиус> [глубина]` | Залить дыру вокруг вас: каждый столбец до первого блока | Fill the hole around you: each column down to the first block |
+| `/we fillr <паттерн> <радиус> [глубина]` | То же, но весь воздух внутри шара | The same, but the whole air of the ball |
+| `/we removeabove [размер] [высота]` | Убрать блоки над вами (квадрат `размер` × `высота`) | Remove the blocks above you (a `размер` × `высота` square) |
+| `/we removebelow [размер] [высота]` | Убрать блоки под вами | Remove the blocks below you |
 
 ## Фигуры вокруг ног / Shapes at your feet
 

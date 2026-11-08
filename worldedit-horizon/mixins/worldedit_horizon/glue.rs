@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "0.6.2";
+pub const VERSION: &str = "0.8.0";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
@@ -84,7 +84,7 @@ impl World for GameWorld<'_, '_> {
 
 fn block_id(game: &Game<'_>, name: &str) -> Option<u32> {
     let name = name.to_ascii_lowercase();
-    // `0` is air, as in WorldEdit: `//set 0` clears the selection.
+    // `0` is air, as in WorldEdit: `/we set 0` clears the selection.
     let name = if name == "0" { "air".to_owned() } else { name };
     let full = if name.contains(':') {
         name
@@ -113,6 +113,7 @@ fn fail(game: &mut Game<'_>, line: String) {
 /// The commands, in every player's command tree, typed `/we set 0`.
 const USAGES: &[&str] = &[
     "we",
+    "we help",
     "we wand",
     "we drain",
     "we fixwater",
@@ -127,11 +128,16 @@ const USAGES: &[&str] = &[
     "we inset <amount:integer>",
     "we chunk",
     "we limit [what:word] [value:integer]",
-    "we pos1",
-    "we pos2",
+    "we pos1 [coordinates:word]",
+    "we pos2 [coordinates:word]",
+    "we pos",
+    "we hpos1",
+    "we hpos2",
     "we sel",
     "we desel",
     "we size",
+    "we trim",
+    "we distr",
     "we expand <amount:integer> [direction:word]",
     "we contract <amount:integer> [direction:word]",
     "we shift <amount:integer> [direction:word]",
@@ -140,6 +146,10 @@ const USAGES: &[&str] = &[
     "we walls <pattern:word>",
     "we faces <pattern:word>",
     "we count <blocks:word>",
+    "we fill <pattern:word> <radius:integer> [depth:integer]",
+    "we fillr <pattern:word> <radius:integer> [depth:integer]",
+    "we removeabove [size:integer] [height:integer]",
+    "we removebelow [size:integer] [height:integer]",
     "we sphere <pattern:word> <radius:integer> [hollow:boolean]",
     "we hsphere <pattern:word> <radius:integer>",
     "we cyl <pattern:word> <radius:integer> [height:integer] [hollow:boolean]",
@@ -161,14 +171,15 @@ const USAGES: &[&str] = &[
 pub fn commands(out: &mut Vec<NativeCommand>) {
     for usage in USAGES {
         // Operators only: the level a player needs to see and run it.
-        let sub = usage.split_whitespace().nth(1);
-        out.push(NativeCommand::op(usage, we_core::level_for(sub.unwrap_or(""))));
+        let sub = usage.split_whitespace().nth(1).unwrap_or("");
+        out.push(NativeCommand::op(usage, we_core::level_for(sub)));
     }
 }
 
-const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 4), commands start with /we: wand | pos1 | pos2 | sel (clear) | size | \
-expand/contract/shift <n> <dir> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | outset/inset <n> | chunk | walls <pattern> | faces <pattern> | \
-count <blocks> | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
+const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 4): every command is /we <command>, as /we set stone. \
+wand | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear) | size | trim | distr | \
+expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
+count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
 clearclipboard | stack <n> <dir> | move <n> <dir> | undo [n] | redo [n] | physics [on|off] | drain | fixwater | fixlava | smooth [n] | limit [blocks|radius|history <n>|reset]. \
 Patterns: stone, 50%stone,dirt. Directions: north south east west up down.";
@@ -181,7 +192,12 @@ pub fn perform(
     ran: &mut bool,
 ) {
     let mut all = command.split_whitespace();
-    if all.next() != Some("we") {
+    let Some(first) = all.next() else {
+        return;
+    };
+    // Every command is under `/we`: the server cuts the slashes of a command
+    // line away, so `//we set stone` reaches the mod as `we set stone`.
+    if first != "we" {
         return;
     }
     let args: Vec<&str> = all.collect();
@@ -238,6 +254,14 @@ fn direction(args: &[&str], at: usize, player: &NativeServerPlayer) -> Result<Di
 
 fn flag(args: &[&str], at: usize) -> bool {
     args.get(at).is_some_and(|a| *a == "true")
+}
+
+/// The block the player looks at (vanilla's `//hpos1` and `//hpos2`).
+fn targeted(game: &Game<'_>) -> Result<Pos, String> {
+    let hit = game
+        .native_raycast(64.0)
+        .ok_or_else(|| "Look at a block first.".to_owned())?;
+    Ok([hit.block_x, hit.block_y, hit.block_z])
 }
 
 fn region(session: &Session, player: &NativeServerPlayer) -> Result<Cuboid, String> {
@@ -309,8 +333,14 @@ fn run(
         },
         "pos1" | "pos2" => {
             let index = if sub == "pos1" { 1 } else { 2 };
-            session.selection.set_pos(index, &dimension, origin);
-            Ok(format!("Position {index} set to {origin:?}."))
+            // With a position of its own, as in vanilla: `//pos1 10,64,-5`.
+            let pos = match args.get(1) {
+                Some(text) => we_core::parse_pos(text)
+                    .ok_or_else(|| format!("`{text}` is not a position (x,y,z)."))?,
+                None => origin,
+            };
+            session.selection.set_pos(index, &dimension, pos);
+            Ok(format!("Position {index} set to {pos:?}."))
         }
         "drain" | "fixwater" | "fixlava" => {
             let c = region(session, player)?;
@@ -519,6 +549,97 @@ fn run(
                 "Counted {}.",
                 we_core::count(&w, &c.positions(), &of)
             ))
+        }
+        "fill" | "fillr" => {
+            let pattern = pattern(game, args.get(1).copied().unwrap_or_default())?;
+            let radius = number(args, 2)?;
+            let depth = if args.len() > 3 { number(args, 3)? } else { 1 };
+            let writes = {
+                let w = GameWorld {
+                    game,
+                    dimension: dimension.clone(),
+                };
+                we_core::fill_hole(&w, origin, radius, depth, &pattern, sub == "fillr", air)?
+            };
+            let edit = {
+                let mut w = GameWorld { game, dimension };
+                we_core::apply(&mut w, writes)
+            };
+            let n = edit.len();
+            session.record(edit);
+            Ok(format!("{n} blocks filled."))
+        }
+        "removeabove" | "removebelow" => {
+            let size = if args.len() > 1 {
+                number(args, 1)?.clamp(0, 32)
+            } else {
+                1
+            };
+            let height = if args.len() > 2 {
+                number(args, 2)?.clamp(1, 256)
+            } else {
+                64
+            };
+            let positions = {
+                let w = GameWorld {
+                    game,
+                    dimension: dimension.clone(),
+                };
+                we_core::remove_column(&w, origin, size, height, sub == "removeabove", air)
+            };
+            we_core::check_limit(positions.len() as u64)?;
+            let edit = {
+                let mut w = GameWorld { game, dimension };
+                we_core::fill(&mut w, &positions, &Pattern::single(air))
+            };
+            let n = edit.len();
+            session.record(edit);
+            Ok(format!("{n} blocks removed."))
+        }
+        "hpos1" | "hpos2" => {
+            let index = if sub == "hpos1" { 1 } else { 2 };
+            let target = targeted(game)?;
+            session.selection.set_pos(index, &dimension, target);
+            Ok(format!("Position {index} set to {target:?}."))
+        }
+        "pos" => {
+            let target = targeted(game)?;
+            session.selection.set_pos(1, &dimension, origin);
+            session.selection.set_pos(2, &dimension, target);
+            Ok(format!(
+                "Position 1 set to {origin:?}, position 2 to {target:?}."
+            ))
+        }
+        "trim" => {
+            let c = region(session, player)?;
+            let trimmed = {
+                let w = GameWorld {
+                    game,
+                    dimension: dimension.clone(),
+                };
+                we_core::trim_to_existing(&w, &c, air)
+            }
+            .ok_or_else(|| "The selection holds nothing but air.".to_owned())?;
+            session.selection.set_cuboid(trimmed);
+            Ok(describe(&trimmed))
+        }
+        "distr" => {
+            let c = region(session, player)?;
+            we_core::check_limit(c.volume())?;
+            let dist = {
+                let w = GameWorld {
+                    game,
+                    dimension: dimension.clone(),
+                };
+                we_core::distribution(&w, &c.positions())
+            };
+            let total: u64 = dist.iter().map(|(_, n)| n).sum();
+            let mut lines = Vec::new();
+            for (id, n) in dist.iter().take(10) {
+                let name = game.res.facts().get(BlockStateId(*id)).name.to_string();
+                lines.push(format!("{n} {name}"));
+            }
+            Ok(format!("{total} blocks: {}.", lines.join(", ")))
         }
         "sphere" | "hsphere" | "cyl" | "hcyl" | "pyramid" | "hpyramid" => {
             let pattern = pattern(game, args.get(1).copied().unwrap_or_default())?;

@@ -564,6 +564,145 @@ pub fn replace<W: World>(world: &mut W, positions: &[Pos], from: &[u32], to: &Pa
     fill(world, &hits, to)
 }
 
+/// A position a player typed: `10,64,-5` or `10 64 -5`.
+pub fn parse_pos(text: &str) -> Option<Pos> {
+    let parts: Vec<&str> = text.split([' ', ',']).filter(|p| !p.is_empty()).collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let mut out = [0i32; 3];
+    for (i, part) in parts.iter().enumerate() {
+        out[i] = part.parse().ok()?;
+    }
+    Some(out)
+}
+
+/// The blocks of `positions` by id, the most of each first.
+pub fn distribution<W: World>(world: &W, positions: &[Pos]) -> Vec<(u32, u64)> {
+    let mut counts: HashMap<u32, u64> = HashMap::new();
+    for &p in positions {
+        *counts.entry(world.get(p)).or_insert(0) += 1;
+    }
+    let mut out: Vec<(u32, u64)> = counts.into_iter().collect();
+    out.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    out
+}
+
+/// The box around the blocks that are not air in `c` (vanilla's `//trim`).
+/// None when there is nothing but air.
+pub fn trim_to_existing<W: World>(world: &W, c: &Cuboid, air: u32) -> Option<Cuboid> {
+    let mut min = c.max;
+    let mut max = c.min;
+    let mut any = false;
+    for p in c.positions() {
+        if world.get(p) == air {
+            continue;
+        }
+        any = true;
+        for i in 0..3 {
+            min[i] = min[i].min(p[i]);
+            max[i] = max[i].max(p[i]);
+        }
+    }
+    any.then_some(Cuboid { min, max })
+}
+
+/// The hole around `center` that is filled: a ball of `radius` and `depth`
+/// blocks deep, where the air is (vanilla's `//fill` and `//fillr`). `/we fill`
+/// fills each column down to the first block that is there, `//fillr` the
+/// whole air of the ball.
+pub fn fill_hole<W: World>(
+    world: &W,
+    center: Pos,
+    radius: i32,
+    depth: i32,
+    pattern: &Pattern,
+    recursive: bool,
+    air: u32,
+) -> Result<Vec<(Pos, u32)>, String> {
+    if !(1..=max_radius()).contains(&radius) {
+        return Err(format!("The radius is 1 to {}.", max_radius()));
+    }
+    if depth < 1 {
+        return Err("The depth is at least 1.".to_owned());
+    }
+    let r = radius as f64 + 0.5;
+    let bottom = center[1] - depth + 1;
+    let mut writes = Vec::new();
+    if recursive {
+        // The whole air of the ball, down to the bottom of the hole.
+        for dy in -(depth - 1)..=0 {
+            let rest = r * r - (dy * dy) as f64;
+            if rest < 0.0 {
+                continue;
+            }
+            for dx in -radius..=radius {
+                for dz in -radius..=radius {
+                    if ((dx * dx + dz * dz) as f64) > rest {
+                        continue;
+                    }
+                    let p = add(center, [dx, dy, dz]);
+                    if world.get(p) == air {
+                        writes.push((p, pattern.pick(p)));
+                    }
+                }
+            }
+        }
+    } else {
+        // Each column, from the top down to the first block that is there.
+        for dx in -radius..=radius {
+            for dz in -radius..=radius {
+                let rest = r * r - (dx * dx + dz * dz) as f64;
+                if rest < 0.0 {
+                    continue;
+                }
+                let deep = ((rest.sqrt() - 0.5).floor() as i32).min(depth - 1);
+                let x = center[0] + dx;
+                let z = center[2] + dz;
+                for y in (center[1] - deep..=center[1]).rev() {
+                    let p = [x, y, z];
+                    if world.get(p) != air {
+                        break;
+                    }
+                    writes.push((p, pattern.pick(p)));
+                }
+            }
+        }
+    }
+    check_limit(writes.len() as u64)?;
+    Ok(writes)
+}
+
+/// The blocks above (`up`) or below (`down`) the player, in a square of
+/// `size` blocks around them and `height` blocks deep (vanilla's
+/// `//removeabove` and `//removebelow`).
+pub fn remove_column<W: World>(
+    world: &W,
+    center: Pos,
+    size: i32,
+    height: i32,
+    up: bool,
+    air: u32,
+) -> Vec<Pos> {
+    let (from, to) = if up {
+        (center[1] + 1, center[1] + height)
+    } else {
+        (center[1] - height, center[1] - 1)
+    };
+    let mut out = Vec::new();
+    for y in from..=to {
+        for dx in -size..=size {
+            for dz in -size..=size {
+                let p = [center[0] + dx, y, center[2] + dz];
+                if world.get(p) != air {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    out
+}
+
 impl Cuboid {
     /// Grown by `n` blocks on every side (a negative `n` shrinks it).
     pub fn grown(&self, n: i32) -> Option<Cuboid> {
@@ -1198,5 +1337,81 @@ mod tests {
         assert!(s.cuboid().is_some());
         s.set_pos(1, "minecraft:the_nether", [5, 5, 5]);
         assert!(s.cuboid().is_none());
+    }
+
+    #[test]
+    fn positions_are_read_with_commas_or_spaces() {
+        assert_eq!(parse_pos("10,64,-5"), Some([10, 64, -5]));
+        assert_eq!(parse_pos("10 64 -5"), Some([10, 64, -5]));
+        assert_eq!(parse_pos("10,64"), None);
+        assert_eq!(parse_pos("a,64,-5"), None);
+        assert_eq!(parse_pos(""), None);
+    }
+
+    #[test]
+    fn the_distribution_counts_the_most_first() {
+        let mut w = Map::default();
+        w.0.insert([0, 0, 0], 1);
+        w.0.insert([1, 0, 0], 1);
+        w.0.insert([2, 0, 0], 2);
+        let c = Cuboid::new([0, 0, 0], [2, 0, 0]);
+        let d = distribution(&w, &c.positions());
+        assert_eq!(d, vec![(1, 2), (2, 1)]);
+    }
+
+    #[test]
+    fn trimming_keeps_the_blocks_that_are_there() {
+        let mut w = Map::default();
+        w.0.insert([1, 2, 3], 1);
+        w.0.insert([4, 5, 6], 1);
+        let c = Cuboid::new([0, 0, 0], [6, 6, 6]);
+        let t = trim_to_existing(&w, &c, 0).unwrap();
+        assert_eq!((t.min, t.max), ([1, 2, 3], [4, 5, 6]));
+        let empty = Cuboid::new([20, 20, 20], [21, 21, 21]);
+        assert!(trim_to_existing(&w, &empty, 0).is_none());
+    }
+
+    #[test]
+    fn a_hole_is_filled_down_to_the_ground() {
+        let mut w = Map::default();
+        // The ground at y = 0, air above it.
+        for x in -2..=2 {
+            for z in -2..=2 {
+                w.0.insert([x, 0, z], 1);
+            }
+        }
+        let stone = Pattern::single(1);
+        let writes = fill_hole(&w, [0, 2, 0], 2, 3, &stone, false, 0).unwrap();
+        // The disc of radius 2 is 21 columns, and the ball narrows with the
+        // height: the outer columns are one block deep, the middle two.
+        let columns: std::collections::HashSet<(i32, i32)> =
+            writes.iter().map(|(p, _)| (p[0], p[2])).collect();
+        assert_eq!(columns.len(), 21);
+        assert!(writes.contains(&([0, 2, 0], 1)) && writes.contains(&([0, 1, 0], 1)));
+        assert!(writes.iter().all(|(p, _)| p[1] >= 1), "not through the ground");
+        // The deeper fill stops at the ground too.
+        let deep = fill_hole(&w, [0, 2, 0], 1, 5, &stone, false, 0).unwrap();
+        assert!(deep.iter().all(|(p, _)| p[1] >= 1), "not through the ground");
+        // The recursive fill takes the whole air of the ball.
+        let all = fill_hole(&w, [0, 2, 0], 2, 5, &stone, true, 0).unwrap();
+        assert!(all.iter().any(|(p, _)| *p == [0, 1, 0]));
+        assert!(all.iter().all(|(p, _)| p[1] >= 1), "not through the ground");
+        assert!(fill_hole(&w, [0, 2, 0], 0, 1, &stone, false, 0).is_err());
+        assert!(fill_hole(&w, [0, 2, 0], 2, 0, &stone, false, 0).is_err());
+    }
+
+    #[test]
+    fn blocks_above_and_below_the_player_go() {
+        let mut w = Map::default();
+        for y in 0..5 {
+            w.0.insert([0, y, 0], 1);
+        }
+        w.0.insert([1, 1, 1], 1);
+        let up = remove_column(&w, [0, 1, 0], 0, 3, true, 0);
+        assert_eq!(up, vec![[0, 2, 0], [0, 3, 0], [0, 4, 0]]);
+        let down = remove_column(&w, [0, 2, 0], 1, 2, false, 0);
+        assert_eq!(down.len(), 3, "the square around the player");
+        assert!(down.contains(&[0, 0, 0]) && down.contains(&[0, 1, 0]));
+        assert!(down.contains(&[1, 1, 1]), "the square is one block wide");
     }
 }
