@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "1.2.0";
+pub const VERSION: &str = "1.2.1";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
