@@ -50,6 +50,10 @@ def package():
             else:
                 info._compresslevel = 9
             info.external_attr = 0o100644 << 16
+            # The system that wrote the entry goes into the archive as well:
+            # Windows would write 0 and Linux 3, and the bytes would differ.
+            # The entry is a Unix one either way, so it says so.
+            info.create_system = 3
             archive.writestr(info, content)
     print(json.dumps(dict(file=str(out), size=out.stat().st_size,
                           sha256=hashlib.sha256(out.read_bytes()).hexdigest()), indent=2))
