@@ -1,12 +1,11 @@
 <p align="center">
-  <img src="logo.png" width="128px" alt="Логотип мода" />
+  <img src="logo.png" width="128px" alt="WorldEdit for Horizon" />
 </p>
 <div align="center">
 
 # 🪓 WorldEdit for Horizon
 
 **A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
-**Мод в духе WorldEdit для клиента [Horizon](https://playhorizon.dev) — нативный мод (`.hnmod`)**
 
 ![version](https://img.shields.io/badge/version-1.0.0-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
 
@@ -14,58 +13,117 @@
 
 ---
 
-## ✨ Features / Возможности
+<details open>
+<summary>🌐 <b>English</b> — features, installation, quick start</summary>
 
-- 🪓 **Wooden axe wand** — left click = pos 1, right click = pos 2. Outside creative it is a normal axe. / **Топор-палочка**: ЛКМ — точка 1, ПКМ — точка 2. Вне creative это обычный топор.
-- 🎨 **Creative only, operators only** — every command works only in `/gamemode creative` and only for operators (permission level 2); `/we limit` needs level 4. / **Только creative, только операторы** — все команды работают только в `/gamemode creative` и только для операторов (уровень прав 2), `/we limit` — только для уровня прав 4.
-- 📍 **Exact corners** — `/we pos1 10,64,-5` and `/we pos2 10 64 -5` set a corner by coordinates; `/we hpos1` and `/we hpos2` take the block you look at. / **Точные углы** — `/we pos1 10,64,-5` и `/we pos2 10 64 -5` ставят угол по координатам; `/we hpos1` и `/we hpos2` берут блок, на который вы смотрите.
-- 📐 **Selection tools** — `/we trim` cuts the selection down to the blocks that are really there, `/we distr` counts what is inside. / **Работа с выделением** — `/we trim` ужимает выделение до непустых блоков, `/we distr` показывает состав.
-- 🕳️ **Digging** — `/we fill` and `/we fillr` fill the hole around you, `/we removeabove` and `/we removebelow` clear a column up or down. / **Копка** — `/we fill` и `/we fillr` заливают дыру вокруг вас, `/we removeabove` и `/we removebelow` чистят столб вверх или вниз.
-- 🧱 **Fill, replace, walls, faces, hollow, overlay, naturalize, line** / заливка, замена, стены, грани, выдалбливание, слой сверху, натурализация, линия.
-- ⚪ **Shapes** — spheres, cylinders, pyramids, solid or hollow (`hcyl`, `hsphere`, `hpyramid`). / **Фигуры** — шары, цилиндры, пирамиды, сплошные и полые.
-- 🔷 **Shapes for the selection** — `/we sel sphere 5`, `/we sel cylinder 3 4`, `/we sel ellipsoid 4 2 4`: the selection becomes a ball, a cylinder or an ellipsoid instead of a box. / **Форма выделения** — `/we sel sphere 5`, `/we sel cylinder 3 4`, `/we sel ellipsoid 4 2 4`: выделение становится шаром, цилиндром или эллипсоидом вместо коробки.
-- 🟥 **The selection is drawn for you** — a red frame around the box and a grid inside it, one cell per block. A round shape is drawn as the blocks it covers, so the outline stands on the blocks the command would change (like F3+B). The lines are drawn over everything, so the terrain does not hide the selection. / **Выделение рисуется** — красная рамка вокруг коробки и сетка внутри, ячейка ровно в один блок. Круглая фигура рисуется своими блоками, так что контур стоит на тех блоках, которые изменит команда (как F3+B). Линии рисуются поверх всего — рельеф не прячет выделение.
-- 🔲 **Your own view** — `/we grid on` and `/we grid off` turn the grid inside the selection off and on; the frame stays. The setting is yours alone. / **Своё отображение** — `/we grid on` и `/we grid off` гасят и возвращают внутреннюю сетку выделения; рамка остаётся. Настройка личная.
-- 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers. / **Чанки** — `/we chunkinfo` расскажет о чанке под вами, `/we listchunks` покажет чанки выделения.
-- 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`. / **Рельеф и жидкости**.
-- 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move. / **Буфер обмена**.
-- ↩️ **Undo / redo** with configurable history. / **Отмена и возврат** с настраиваемой историей.
-- 🎲 **Patterns** — `stone`, `0` (air), `stone,dirt`, `30%stone,dirt`. / **Паттерны**.
-- 🔧 **In-game limits** — `/we limit` changes block, radius and history limits live. / **Лимиты** меняются прямо в игре.
-- 🔇 **No item drops** — edits do not pop torches/flowers (toggle with `/we physics`). / **Без выпадения предметов** (переключается `/we physics`).
+## ✨ Features
 
-## 📦 Installation / Установка
+- 🪓 **Wooden axe wand** — left click = pos 1, right click = pos 2. Outside creative it is a normal axe.
+- 🎨 **Creative only, operators only** — every command works only in `/gamemode creative` and only for operators (permission level 2); `/we limit` needs level 4.
+- 📍 **Exact corners** — `/we pos1 10,64,-5` and `/we pos2 10 64 -5` set a corner by coordinates; `/we hpos1` and `/we hpos2` take the block you look at.
+- 📐 **Selection tools** — `/we trim` cuts the selection down to the blocks that are really there, `/we distr` counts what is inside.
+- 🕳️ **Digging** — `/we fill` and `/we fillr` fill the hole around you, `/we removeabove` and `/we removebelow` clear a column up or down.
+- 🧱 **Fill, replace, walls, faces, hollow, overlay, naturalize, line.**
+- ⚪ **Shapes** — spheres, cylinders, pyramids, solid or hollow (`hcyl`, `hsphere`, `hpyramid`).
+- 🔷 **Shapes for the selection** — `/we sel sphere 5`, `/we sel cylinder 3 4`, `/we sel ellipsoid 4 2 4`: the selection becomes a ball, a cylinder or an ellipsoid instead of a box.
+- 🟥 **The selection is drawn for you** — a red frame around the box and a grid inside it, one cell per block. A round shape is drawn as the blocks it covers, so the outline stands on the blocks the command would change (like F3+B). The lines are drawn over everything, so the terrain does not hide the selection.
+- 🔲 **Your own view** — `/we grid on` and `/we grid off` turn the grid inside the selection off and on; the frame stays. The setting is yours alone.
+- 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers.
+- 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`.
+- 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move.
+- ↩️ **Undo / redo** with configurable history.
+- 🎲 **Patterns** — `stone`, `0` (air), `stone,dirt`, `30%stone,dirt`.
+- 🔧 **In-game limits** — `/we limit` changes block, radius and history limits live.
+- 🔇 **No item drops** — edits do not pop torches/flowers (toggle with `/we physics`).
 
-#### Способ 1: Автоматический (Рекомендуемый)
-1. Скопируйте ссылку на этот репозиторий GitHub из адресной строки браузера.
-2. Откройте лаунчер **Horizon**, перейдите в раздел **Моды** -> **Установить по ссылке**.
-3. Или просто вставьте ссылку в лаунчере от мода в GitHub, и он установится автоматически!
+## 📦 Installation
+
 #### Method 1: Automatic (Recommended)
+
 1. Copy the URL of this GitHub repository from your browser's address bar.
 2. Open the **Horizon** launcher, go to **Mods** -> **Install from Link**.
 3. Simply paste this GitHub link directly inside the launcher, and the mod will install automatically!
- #### Способ 2 \ Method 2 \ 
-1. Download [worldedit_horizon](https://github.com/Kowge/WorldEdit_Horizon/releases). / Скачайте [worldedit_horizon](https://github.com/Kowge/WorldEdit_Horizon/releases).
-2. Open the Horizon launcher → **Mods** → **Add mods** and pick the file. / Лаунчер Horizon → **Моды** → **Добавить моды** → выберите файл.
-3. Enable **Settings → Native mods (experimental)** and press **Build** (the first build takes a while). / Включите **Настройки → Нативные моды** и нажмите **Собрать** (первая сборка долгая).
-4. Launch the **Native mods** instance, enter a world and switch to creative: `/gamemode creative`. / Запустите сборку **Native mods**, войдите в мир и включите creative.
+
+#### Method 2: Manual
+
+1. Download [worldedit_horizon](https://github.com/Kowge/WorldEdit_Horizon/releases).
+2. Open the Horizon launcher → **Mods** → **Add mods** and pick the file.
+3. Enable **Settings → Native mods (experimental)** and press **Build** (the first build takes a while).
+4. Launch the **Native mods** instance, enter a world and switch to creative: `/gamemode creative`.
 
 > ⚠️ Native mods are compiled into the game and have full access to your computer. Build only code you trust.
-> ⚠️ Нативные моды компилируются в игру и имеют полный доступ к компьютеру. Собирайте только код, которому доверяете.
 
-## 🚀 Quick start / Быстрый старт
+## 🚀 Quick start
 
 ```text
 /gamemode creative
-/we wand                    # get the axe / получить топор
-(left click, right click)   # pick two corners / выбрать два угла
-/we set stone               # fill / залить камнем
-/we set 0                   # delete / удалить
-/we expand 5                # grow where you look / расширить туда, куда смотрите
-/we hcyl stone 5 3          # hollow cylinder r=5 h=3 / полый цилиндр
-/we sel sphere 5            # a round selection / круглое выделение
-/we undo                    # undo / отмена
+/we wand                    # get the axe
+(left click, right click)   # pick two corners
+/we set stone               # fill
+/we set 0                   # delete
+/we expand 5                # grow where you look
+/we hcyl stone 5 3          # hollow cylinder r=5 h=3
+/we sel sphere 5            # a round selection
+/we undo                    # undo
 ```
+
+</details>
+
+<details>
+<summary>🌐 <b>Русский</b> — возможности, установка, быстрый старт</summary>
+
+## ✨ Возможности
+
+- 🪓 **Топор-палочка** — ЛКМ — точка 1, ПКМ — точка 2. Вне creative это обычный топор.
+- 🎨 **Только creative, только операторы** — все команды работают только в `/gamemode creative` и только для операторов (уровень прав 2), `/we limit` — только для уровня прав 4.
+- 📍 **Точные углы** — `/we pos1 10,64,-5` и `/we pos2 10 64 -5` ставят угол по координатам; `/we hpos1` и `/we hpos2` берут блок, на который вы смотрите.
+- 📐 **Работа с выделением** — `/we trim` ужимает выделение до непустых блоков, `/we distr` показывает состав.
+- 🕳️ **Копка** — `/we fill` и `/we fillr` заливают дыру вокруг вас, `/we removeabove` и `/we removebelow` чистят столб вверх или вниз.
+- 🧱 **Заливка, замена, стены, грани, выдалбливание, слой сверху, натурализация, линия.**
+- ⚪ **Фигуры** — шары, цилиндры, пирамиды, сплошные и полые (`hcyl`, `hsphere`, `hpyramid`).
+- 🔷 **Форма выделения** — `/we sel sphere 5`, `/we sel cylinder 3 4`, `/we sel ellipsoid 4 2 4`: выделение становится шаром, цилиндром или эллипсоидом вместо коробки.
+- 🟥 **Выделение рисуется** — красная рамка вокруг коробки и сетка внутри, ячейка ровно в один блок. Круглая фигура рисуется своими блоками, так что контур стоит на тех блоках, которые изменит команда (как F3+B). Линии рисуются поверх всего — рельеф не прячет выделение.
+- 🔲 **Своё отображение** — `/we grid on` и `/we grid off` гасят и возвращают внутреннюю сетку выделения; рамка остаётся. Настройка личная.
+- 🗺 **Чанки** — `/we chunkinfo` расскажет о чанке под вами, `/we listchunks` покажет чанки выделения.
+- 🌊 **Рельеф и жидкости** — `drain`, `fixwater`, `fixlava`, `smooth`.
+- 📋 **Буфер обмена** — копировать, вырезать, вставить, повернуть, отразить, повторить, переместить.
+- ↩️ **Отмена и возврат** с настраиваемой историей.
+- 🎲 **Паттерны** — `stone`, `0` (воздух), `stone,dirt`, `30%stone,dirt`.
+- 🔧 **Лимиты** меняются прямо в игре — `/we limit`.
+- 🔇 **Без выпадения предметов** — правки не роняют факелы и цветы (переключается `/we physics`).
+
+## 📦 Установка
+
+#### Способ 1: Автоматический (рекомендуемый)
+
+1. Скопируйте ссылку на этот репозиторий GitHub из адресной строки браузера.
+2. Откройте лаунчер **Horizon**, перейдите в раздел **Моды** -> **Установить по ссылке**.
+3. Или просто вставьте ссылку в лаунчере от мода на GitHub, и он установится автоматически!
+
+#### Способ 2: Вручную
+
+1. Скачайте [worldedit_horizon](https://github.com/Kowge/WorldEdit_Horizon/releases).
+2. Лаунчер Horizon → **Моды** → **Добавить моды** → выберите файл.
+3. Включите **Настройки → Нативные моды** и нажмите **Собрать** (первая сборка долгая).
+4. Запустите сборку **Native mods**, войдите в мир и включите creative: `/gamemode creative`.
+
+> ⚠️ Нативные моды компилируются в игру и имеют полный доступ к компьютеру. Собирайте только код, которому доверяете.
+
+## 🚀 Быстрый старт
+
+```text
+/gamemode creative
+/we wand                    # получить топор
+(ЛКМ, ПКМ)                  # выбрать два угла
+/we set stone               # залить
+/we set 0                   # удалить
+/we expand 5                # расширить туда, куда смотрите
+/we hcyl stone 5 3          # полый цилиндр r=5 h=3
+/we sel sphere 5            # круглое выделение
+/we undo                    # отмена
+```
+
+</details>
 
 ---
 
@@ -179,7 +237,7 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | Команда / Command | RU | EN |
 |---|---|---|
 | `/we undo [n]` | Отменить n последних действий (до 20) | Undo n last edits (up to 20) |
-| `/we redo [n]` | Вернуть отменённое | Redo undone edits |
+| `/we redo [n]` | Вернуть отменённые | Redo undone edits |
 
 ## Лимиты / Limits
 
