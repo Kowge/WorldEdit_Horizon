@@ -1,0 +1,12 @@
+[package]
+name = "we_core_test"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[lib]
+name = "we_core_test"
+path = "src/lib.rs"
+
+[dependencies]

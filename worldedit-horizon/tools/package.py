@@ -2,7 +2,8 @@
 """Package the mod as a source-only `.hnmod` (the file Horizon's registry and launcher take).
 
 The archive holds `horizon-native.json` and `mixins/<id>/` (only `.rs` and `.toml`), with fixed dates
-and modes, so the same sources always give the same bytes and SHA-256. Run: python3 tools/package.py
+and modes, so the same sources always give the same bytes and SHA-256. The compression level is
+pinned too, so a package built here and one built by the CI agree. Run: python3 tools/package.py
 Adapted from the packager of horizon-native-mod-template (MIT).
 """
 import hashlib
@@ -41,6 +42,13 @@ def package():
         for name, content in sorted(files.items()):
             info = zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
+            # The level belongs to the entry, not to the archive: a ZipInfo
+            # carries its own, and the archive's own is ignored. Python 3.13
+            # gave it a public name; before that it is the private one.
+            if hasattr(info, 'compress_level'):
+                info.compress_level = 9
+            else:
+                info._compresslevel = 9
             info.external_attr = 0o100644 << 16
             archive.writestr(info, content)
     print(json.dumps(dict(file=str(out), size=out.stat().st_size,

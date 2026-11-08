@@ -16,7 +16,22 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    # The packager needs Python 3.11 or newer, for tomllib.
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    # The rules of the mod live in the bundle of the game; here they are a
+    # crate of their own, so that they can be tested without the game.
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --verbose --manifest-path worldedit-horizon/core-test/Cargo.toml
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose --manifest-path worldedit-horizon/core-test/Cargo.toml
+    # The package is what the launcher takes: it is built here too, so that
+    # a broken archive never reaches a release.
+    - name: Build the package
+      run: python3 worldedit-horizon/tools/package.py
+    - uses: actions/upload-artifact@v4
+      with:
+        name: worldedit_horizon-hnmod
+        path: worldedit-horizon/target/*.hnmod
+        if-no-files-found: error
