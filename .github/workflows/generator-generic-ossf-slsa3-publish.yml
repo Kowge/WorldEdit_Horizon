@@ -92,6 +92,8 @@ jobs:
     with:
       base64-subjects: "${{ needs.build.outputs.digests }}"
       upload-assets: true # Optional: Upload to a new release
+      # The provenance goes to the release of the tag the run is on.
+      upload-tag-name: ${{ github.ref_name }}
 
   # The package the release carries is the one the generator signed, so it is
   # taken from this run and not built anywhere else: the deflate of zlib is
