@@ -25,13 +25,13 @@
 - 🔷 **Shapes for the selection** — `/we sel sphere 5`, `/we sel cylinder 3 4`, `/we sel ellipsoid 4 2 4`: the selection becomes a ball, a cylinder or an ellipsoid instead of a box.
 - 🟥 **The selection is drawn for you** — a red frame around the box and a grid inside it, one cell per block. A round shape is drawn as the blocks it covers, so the outline stands on the blocks the command would change (like F3+B). The lines are drawn over everything, so the terrain does not hide the selection.
 - 🔲 **Your own view** — `/we grid on` and `/we grid off` turn the grid inside the selection off and on; the frame stays. The setting is yours alone.
-- 🖌 **Brushes** — `/we brush sphere 5 stone` arms a brush: the wand's left click paints its shape on the block you click, or along your view when a distance is set. `/we brush off` puts the wand back to selecting corners.
+- 🖌 **Brushes** — `/we brush sphere 5 stone` arms a brush: the wand's left click paints its shape on the block you click, or along your view when a distance is set. The pattern may name a state too: `/we brush sphere 5 oak_log[axis=x]`. `/we brush off` puts the wand back to selecting corners.
 - 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`.
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move.
 - 💾 **Schematics** — `/we schematic save <name>` writes the build of the selection into a file of your own folder; `/we schematic load` reads it back and `/we paste` puts it down in front of you. Options > Horizon Settings > Mods has a button that opens the folder.
 - ↩️ **Undo / redo** with configurable history. An edit keeps the dimension it was made in, so undoing it in another one is refused and the edit waits for you there.
-- 🎲 **Patterns** — `stone`, `0` (air), `stone,dirt`, `30%stone,dirt`.
+- 🎲 **Patterns** — `stone`, `0` (air), `stone,dirt`, `30%stone,dirt`, and the state of a block: `oak_log[axis=x]`, `chest[facing=north]`.
 - 🔧 **In-game limits** — `/we limit` changes block, radius, distance and history limits live.
 - 🔇 **No item drops** — edits do not pop torches/flowers (toggle with `/we physics`).
 
@@ -148,7 +148,7 @@ How the sizes work:
 | Command | Description |
 |---|---|
 | `/we set <pattern>` | Fill the selection. `/we set 0` deletes the blocks |
-| `/we replace <from> <to>` | Replace some blocks with others |
+| `/we replace <from> <to>` | Replace some blocks with others. A block may name the state it means: `oak_log[axis=x]` takes only the logs along the x axis, `oak_log` takes every log whatever its axis |
 | `/we walls <pattern>` | The 4 vertical sides only |
 | `/we faces <pattern>` | All 6 sides (hollow box) |
 | `/we replace !<blocks> <to>` | A leading `!` replaces everything except the listed blocks |
@@ -160,7 +160,7 @@ How the sizes work:
 | `/we fixwater` | Turn flowing water in the selection into source blocks |
 | `/we fixlava` | The same for lava |
 | `/we smooth [n]` | Smooth the terrain in the selection, n passes (1–50, default 1) |
-| `/we count <blocks>` | Count blocks in the selection |
+| `/we count <blocks>` | Count blocks in the selection. A block without a state counts every state of it, `oak_log[axis=x]` only that one |
 | `/we fill <pattern> <radius> [depth]` | Fill the hole around you: each column down to the first block |
 | `/we fillr <pattern> <radius> [depth]` | The same, but the whole air of the ball |
 | `/we removeabove [size] [height]` | Remove the blocks above you (a `size` × `height` square) |
