@@ -84,6 +84,9 @@ impl World for GameWorld<'_, '_> {
             write_flags(),
         )
     }
+    fn dimension(&self) -> &str {
+        &self.dimension
+    }
 }
 
 /// The level's blocks, read only: the brush's ray goes through them.
@@ -1105,11 +1108,14 @@ fn run(
                 1
             };
             let mut w = GameWorld { game, dimension };
-            let (edits, blocks) = if sub == "undo" {
+            let outcome = if sub == "undo" {
                 session.undo(&mut w, times)
             } else {
                 session.redo(&mut w, times)
             };
+            // The edit may belong to another dimension: the game writes only
+            // in the level in place, so it is left in the history.
+            let (edits, blocks) = outcome?;
             if edits == 0 {
                 Err(format!("Nothing to {sub}."))
             } else {

@@ -30,7 +30,7 @@
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`.
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move.
 - 💾 **Schematics** — `/we schematic save <name>` writes the build of the selection into a file of your own folder; `/we schematic load` reads it back and `/we paste` puts it down in front of you. Options > Horizon Settings > Mods has a button that opens the folder.
-- ↩️ **Undo / redo** with configurable history.
+- ↩️ **Undo / redo** with configurable history. An edit keeps the dimension it was made in, so undoing it in another one is refused and the edit waits for you there.
 - 🎲 **Patterns** — `stone`, `0` (air), `stone,dirt`, `30%stone,dirt`.
 - 🔧 **In-game limits** — `/we limit` changes block, radius, distance and history limits live.
 - 🔇 **No item drops** — edits do not pop torches/flowers (toggle with `/we physics`).

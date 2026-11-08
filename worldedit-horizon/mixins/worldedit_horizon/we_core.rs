@@ -113,6 +113,11 @@ pub trait World {
     fn get(&self, pos: Pos) -> u32;
     /// Sets the block; whether the world changed.
     fn set(&mut self, pos: Pos, block: u32) -> bool;
+    /// The dimension the level is in: an edit is kept with it, so that an
+    /// undo stays where the edit was made.
+    fn dimension(&self) -> &str {
+        ""
+    }
 }
 
 /// A direction of the world, by compass or axis.
@@ -1484,6 +1489,9 @@ pub struct Change {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Edit {
     pub changes: Vec<Change>,
+    /// The dimension the edit was made in: the game writes only in the
+    /// level the player is in, so an undo has to happen there too.
+    pub dimension: String,
 }
 
 impl Edit {
@@ -1496,7 +1504,10 @@ impl Edit {
     /// Puts every block back as it was, last change first, and returns the
     /// edit that undoes that.
     pub fn revert<W: World>(&self, world: &mut W) -> Edit {
-        let mut out = Edit::default();
+        let mut out = Edit {
+            dimension: self.dimension.clone(),
+            ..Edit::default()
+        };
         for c in self.changes.iter().rev() {
             if world.set(c.pos, c.old) {
                 out.changes.push(Change {
@@ -1512,7 +1523,10 @@ impl Edit {
 
 /// Writes the blocks in order and records what changed.
 pub fn apply<W: World>(world: &mut W, writes: impl IntoIterator<Item = (Pos, u32)>) -> Edit {
-    let mut edit = Edit::default();
+    let mut edit = Edit {
+        dimension: world.dimension().to_owned(),
+        ..Edit::default()
+    };
     for (pos, new) in writes {
         let old = world.get(pos);
         if old != new && world.set(pos, new) {
@@ -2222,22 +2236,47 @@ impl Session {
         }
         self.redo.clear();
     }
-    /// Undoes up to `times` edits; how many edits and blocks.
-    pub fn undo<W: World>(&mut self, world: &mut W, times: usize) -> (usize, usize) {
-        Self::step(&mut self.undo, &mut self.redo, world, times)
+    /// Undoes up to `times` edits; how many edits and blocks. Err when the
+    /// edit belongs to another dimension: the game writes only in the level
+    /// in place, so the player has to be there. The edit stays in the
+    /// history either way.
+    pub fn undo<W: World>(
+        &mut self,
+        world: &mut W,
+        times: usize,
+    ) -> Result<(usize, usize), String> {
+        Self::step(&mut self.undo, &mut self.redo, world, times, "undo")
     }
-    pub fn redo<W: World>(&mut self, world: &mut W, times: usize) -> (usize, usize) {
-        Self::step(&mut self.redo, &mut self.undo, world, times)
+    /// Redoes up to `times` edits; how many edits and blocks. Err when the
+    /// edit belongs to another dimension, as [`Session::undo`] is.
+    pub fn redo<W: World>(
+        &mut self,
+        world: &mut W,
+        times: usize,
+    ) -> Result<(usize, usize), String> {
+        Self::step(&mut self.redo, &mut self.undo, world, times, "redo")
     }
     fn step<W: World>(
         from: &mut Vec<Edit>,
         to: &mut Vec<Edit>,
         world: &mut W,
         times: usize,
-    ) -> (usize, usize) {
+        what: &str,
+    ) -> Result<(usize, usize), String> {
         let (mut edits, mut blocks) = (0, 0);
         for _ in 0..times {
             let Some(edit) = from.pop() else { break };
+            // The edit was made in another dimension. The game writes only in
+            // the level in place, so it is put back into the history instead
+            // of being undone in the wrong dimension.
+            if edit.dimension != world.dimension() {
+                let message = format!(
+                    "That edit was made in {}. Go there to {what} it.",
+                    dimension_name(&edit.dimension)
+                );
+                from.push(edit);
+                return Err(message);
+            }
             let back = edit.revert(world);
             blocks += back.len();
             edits += 1;
@@ -2245,7 +2284,19 @@ impl Session {
                 to.push(back);
             }
         }
-        (edits, blocks)
+        Ok((edits, blocks))
+    }
+}
+
+/// The dimension's name, as a player reads it: `minecraft:the_nether` is
+/// `the Nether`.
+fn dimension_name(dimension: &str) -> String {
+    let id = dimension.split_once(':').map_or(dimension, |(_, id)| id);
+    match id {
+        "overworld" => "the Overworld".to_owned(),
+        "the_nether" => "the Nether".to_owned(),
+        "the_end" => "the End".to_owned(),
+        other => other.replace('_', " "),
     }
 }
 
@@ -2287,8 +2338,9 @@ mod tests {
     }
     use super::*;
 
+    /// A world of blocks, and the dimension it is in.
     #[derive(Default)]
-    struct Map(HashMap<Pos, u32>);
+    struct Map(HashMap<Pos, u32>, String);
 
     impl World for Map {
         fn get(&self, p: Pos) -> u32 {
@@ -2298,6 +2350,9 @@ mod tests {
             let old = self.get(p);
             self.0.insert(p, b);
             old != b
+        }
+        fn dimension(&self) -> &str {
+            &self.1
         }
     }
 
@@ -2347,13 +2402,55 @@ mod tests {
         assert_eq!(e.len(), 27);
         s.record(e);
         assert_eq!(count(&w, &c.positions(), &[2]), 27);
-        assert_eq!(s.undo(&mut w, 1), (1, 27));
+        assert_eq!(s.undo(&mut w, 1), Ok((1, 27)));
         assert_eq!(count(&w, &c.positions(), &[1]), 27);
-        assert_eq!(s.redo(&mut w, 1), (1, 27));
+        assert_eq!(s.redo(&mut w, 1), Ok((1, 27)));
         assert_eq!(count(&w, &c.positions(), &[2]), 27);
-        assert_eq!(s.undo(&mut w, 5), (2, 54));
+        assert_eq!(s.undo(&mut w, 5), Ok((2, 54)));
         assert_eq!(count(&w, &c.positions(), &[0]), 27);
-        assert_eq!(s.undo(&mut w, 1), (0, 0));
+        assert_eq!(s.undo(&mut w, 1), Ok((0, 0)));
+    }
+
+    #[test]
+    fn an_undo_stays_in_the_dimension_it_was_made_in() {
+        let mut overworld = Map::default();
+        overworld.1 = "minecraft:overworld".to_owned();
+        let mut s = Session::default();
+        s.record(fill(&mut overworld, &[[0, 0, 0]], &Pattern::single(1)));
+        assert_eq!(overworld.get([0, 0, 0]), 1);
+
+        // The player walks into the Nether and undoes there: the edit belongs
+        // to the Overworld, so it is refused and is not used up. The message
+        // says where the edit was made, which is where the player has to go.
+        let mut nether = Map::default();
+        nether.1 = "minecraft:the_nether".to_owned();
+        nether.set([0, 0, 0], 9);
+        let err = s.undo(&mut nether, 1).unwrap_err();
+        assert!(err.contains("the Overworld"), "{err}");
+        // Nothing was written into the Nether.
+        assert_eq!(nether.get([0, 0, 0]), 9);
+        assert_eq!(overworld.get([0, 0, 0]), 1);
+
+        // Back in the Overworld the same entry is still there to undo.
+        assert_eq!(s.undo(&mut overworld, 1), Ok((1, 1)));
+        assert_eq!(overworld.get([0, 0, 0]), 0);
+
+        // Redo is refused in the Nether in the same way.
+        let err = s.redo(&mut nether, 1).unwrap_err();
+        assert!(err.contains("the Overworld"), "{err}");
+        assert_eq!(nether.get([0, 0, 0]), 9);
+
+        // And it works in the dimension the edit belongs to.
+        assert_eq!(s.redo(&mut overworld, 1), Ok((1, 1)));
+        assert_eq!(overworld.get([0, 0, 0]), 1);
+    }
+
+    #[test]
+    fn a_dimension_is_named_as_a_player_reads_it() {
+        assert_eq!(dimension_name("minecraft:overworld"), "the Overworld");
+        assert_eq!(dimension_name("minecraft:the_nether"), "the Nether");
+        assert_eq!(dimension_name("minecraft:the_end"), "the End");
+        assert_eq!(dimension_name("some:other_world"), "other world");
     }
 
     #[test]
@@ -2361,9 +2458,9 @@ mod tests {
         let mut w = Map::default();
         let mut s = Session::default();
         s.record(fill(&mut w, &[[0, 0, 0]], &Pattern::single(1)));
-        s.undo(&mut w, 1);
+        s.undo(&mut w, 1).unwrap();
         s.record(fill(&mut w, &[[0, 0, 0]], &Pattern::single(2)));
-        assert_eq!(s.redo(&mut w, 1), (0, 0));
+        assert_eq!(s.redo(&mut w, 1), Ok((0, 0)));
     }
 
     #[test]
@@ -2373,7 +2470,7 @@ mod tests {
         for i in 0..(HISTORY as u32 + 5) {
             s.record(fill(&mut w, &[[i as i32, 0, 0]], &Pattern::single(1)));
         }
-        assert_eq!(s.undo(&mut w, 100).0, HISTORY);
+        assert_eq!(s.undo(&mut w, 100).unwrap().0, HISTORY);
     }
 
     #[test]
@@ -2881,7 +2978,7 @@ mod tests {
         assert_eq!(edit.len(), 27);
         s.record(edit);
         assert_eq!(w.get([0, 0, 0]), 1);
-        let (edits, blocks) = s.undo(&mut w, 1);
+        let (edits, blocks) = s.undo(&mut w, 1).unwrap();
         assert_eq!((edits, blocks), (1, 27));
         assert_eq!(w.get([0, 0, 0]), 0);
     }

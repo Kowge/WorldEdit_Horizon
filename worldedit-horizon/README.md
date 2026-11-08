@@ -22,6 +22,8 @@ Every command is under `/we`: `/we set stone`, `/we copy`, `/we undo`. The serve
 - **Schematics:** `schematic save|load|list|delete <name>` — the build of the selection, kept in a file of the player's own folder
 - **History and limits:** `undo`, `redo`, `physics [on|off]`, `limit`
 
+An edit keeps the dimension it was made in. `/we undo` and `/we redo` in another dimension are refused with a message saying where the edit was made, and the edit stays in the history: the game writes only in the level the player is in, so nothing is undone in the wrong place.
+
 Patterns: `stone`, `50%stone,dirt`. Directions: `north south east west up down`.
 
 ## The selection is drawn on the client
