@@ -42,6 +42,8 @@ The selection is drawn where you look: a frame around the box of the selection a
 
 The brush goes through the blocks it covered last, as if they were air: it does not shoot at its own work, so a second click does the same as the first one. A new brush keeps the distance of the old one: `/we brush sphere 4 dirt` changes the shape and the pattern, not the distance.
 
+`/we brush smooth [radius] [iterations]` arms the smoothing brush, as in WorldEdit 7.4.6: the wand's left click smooths the ground around the clicked block. The radius is two blocks and the filter runs four times by default. The ground is smoothed the way WorldEdit smooths it: the height of every column goes through a Gaussian filter (a kernel of eleven by eleven blocks, σ = 1), and the ground then moves to the new heights — a spike comes down, a hole is filled with the ground around it, and the column keeps its texture, stretched or squeezed. The right click has nothing to erase, and `/we smooth` of the selection uses the same filter with one pass.
+
 The brush belongs to the player alone: `/we brush` says which one is armed and `/we brush off` puts it away, so the wand selects the corners again. A stroke is one edit in the history, so `/we undo` takes it back.
 
 ## Schematics

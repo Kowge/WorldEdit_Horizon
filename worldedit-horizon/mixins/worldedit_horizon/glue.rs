@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "1.3.0";
+pub const VERSION: &str = "1.4.0";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
@@ -89,6 +89,15 @@ impl World for GameWorld<'_, '_> {
     fn dimension(&self) -> &str {
         &self.dimension
     }
+    /// Whether the block stands in the way: the game knows the blocks that
+    /// are solid, as in WorldEdit.
+    fn is_solid(&self, block: u32) -> bool {
+        self.game.res.facts().get(BlockStateId(block)).legacy_solid
+    }
+    /// Whether the block is a liquid: water or lava.
+    fn is_liquid(&self, block: u32) -> bool {
+        self.game.res.facts().get(BlockStateId(block)).fluid != horizon_client::blocks::Fluid::None
+    }
 }
 
 /// The level's blocks, read only: the brush's ray goes through them.
@@ -102,6 +111,12 @@ impl World for GameReader<'_, '_> {
     }
     fn set(&mut self, _p: Pos, _block: u32) -> bool {
         false
+    }
+    fn is_solid(&self, block: u32) -> bool {
+        self.game.res.facts().get(BlockStateId(block)).legacy_solid
+    }
+    fn is_liquid(&self, block: u32) -> bool {
+        self.game.res.facts().get(BlockStateId(block)).fluid != horizon_client::blocks::Fluid::None
     }
 }
 
@@ -286,7 +301,7 @@ pub fn commands(out: &mut Vec<NativeCommand>) {
 }
 
 const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 4): every command is /we <command>, as /we set stone. \
-wand | brush <shape> [sizes] <pattern> | brush radius <n> | brush distance <n> (the brush works on the block you look at, and, where there is none, that far ahead) | brush at | brush erase at (off) | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
+wand | brush <shape> [sizes] <pattern> | brush smooth [radius] [iterations] (the ground around the block is smoothed, as in WorldEdit) | brush radius <n> | brush distance <n> (the brush works on the block you look at, and, where there is none, that far ahead) | brush at | brush erase at (off) | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
 expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
@@ -521,7 +536,7 @@ fn brush_command(
         session.last_stroke = positions.into_iter().collect();
         return Ok(format!(
             "{n} blocks {} at {target:?}.",
-            if erase { "erased" } else { "painted" }
+            brush_past(&brush, erase)
         ));
     }
     // A new brush: `brush sphere 5 stone`.
@@ -536,13 +551,15 @@ fn brush_command(
     };
     let line = if brush.distance.is_some() {
         format!(
-            "The brush is {}. Click to paint the block you look at; `/we brush off` stops it.",
-            brush.describe()
+            "The brush is {}. Click to {} the block you look at; `/we brush off` stops it.",
+            brush.describe(),
+            brush_verb(&brush, false)
         )
     } else {
         format!(
-            "The brush is {}. Click a block to paint it; `/we brush off` stops it.",
-            brush.describe()
+            "The brush is {}. Click a block to {} it; `/we brush off` stops it.",
+            brush.describe(),
+            brush_verb(&brush, false)
         )
     };
     session.brush = Some(brush);
@@ -1496,7 +1513,7 @@ pub fn brush_click(game: &mut Game<'_>, pos: [i32; 3]) -> bool {
             });
             game.native_action_bar(
                 player.uuid,
-                Text::literal(format!("Brush: {n} blocks painted.")),
+                Text::literal(format!("Brush: {n} blocks {}.", brush_past(&brush, false))),
             );
         }
         Err(why) => fail(game, why),
@@ -1525,7 +1542,7 @@ fn brush_erase(
             });
             game.native_action_bar(
                 player.uuid,
-                Text::literal(format!("Brush: {n} blocks erased.")),
+                Text::literal(format!("Brush: {n} blocks {}.", brush_past(&brush, true))),
             );
         }
         Err(why) => fail(game, why),
@@ -1563,7 +1580,7 @@ pub fn brush_stroke(game: &mut Game<'_>, player: &NativeServerPlayer, erase: boo
                 player.uuid,
                 Text::literal(format!(
                     "Brush: {n} blocks {}.",
-                    if erase { "erased" } else { "painted" }
+                    brush_past(&brush, erase)
                 )),
             );
         }
@@ -1606,21 +1623,72 @@ fn paint_brush(
     target: Pos,
     erase: bool,
 ) -> Result<(we_core::Edit, Vec<Pos>), String> {
-    let positions = brush
-        .positions(target)
-        .map_err(|why| format!("The brush does not fit: {why}"))?;
-    let pattern = if erase {
-        let air = block_id(game, "air").unwrap_or(0);
-        we_core::Pattern::single(air)
-    } else {
-        brush.pattern.clone()
-    };
     let dimension = player.dimension.clone();
-    let edit = {
-        let mut w = GameWorld { game, dimension };
-        we_core::fill(&mut w, &positions, &pattern)
-    };
-    Ok((edit, positions))
+    match &brush.kind {
+        we_core::BrushKind::Smooth {
+            radius,
+            iterations,
+        } => {
+            if erase {
+                return Err("The smooth brush has nothing to erase.".to_owned());
+            }
+            // The ground around the block is smoothed, as in WorldEdit.
+            let region = we_core::smooth_region(target, *radius);
+            let air = block_id(game, "air").unwrap_or(0);
+            let edit = {
+                let mut w = GameWorld { game, dimension };
+                let writes = we_core::smooth_writes(&w, &region, air, *iterations as u32);
+                we_core::apply(&mut w, writes)
+            };
+            // The brush remembers the blocks it changed: it does not shoot at
+            // its own work.
+            let positions = edit.changes.iter().map(|c| c.pos).collect();
+            Ok((edit, positions))
+        }
+        we_core::BrushKind::Shape { .. } => {
+            let positions = brush
+                .positions(target)
+                .map_err(|why| format!("The brush does not fit: {why}"))?;
+            let pattern = if erase {
+                let air = block_id(game, "air").unwrap_or(0);
+                we_core::Pattern::single(air)
+            } else {
+                brush
+                    .pattern()
+                    .cloned()
+                    .ok_or_else(|| "The brush paints no pattern.".to_owned())?
+            };
+            let edit = {
+                let mut w = GameWorld { game, dimension };
+                we_core::fill(&mut w, &positions, &pattern)
+            };
+            Ok((edit, positions))
+        }
+    }
+}
+
+/// What the brush does, as the messages write it.
+fn brush_verb(brush: &we_core::Brush, erase: bool) -> &'static str {
+    if erase {
+        "erase"
+    } else {
+        match &brush.kind {
+            we_core::BrushKind::Smooth { .. } => "smooth",
+            we_core::BrushKind::Shape { .. } => "paint",
+        }
+    }
+}
+
+/// What the brush did, as the messages write it.
+fn brush_past(brush: &we_core::Brush, erase: bool) -> &'static str {
+    if erase {
+        "erased"
+    } else {
+        match &brush.kind {
+            we_core::BrushKind::Smooth { .. } => "smoothed",
+            we_core::BrushKind::Shape { .. } => "painted",
+        }
+    }
 }
 
 /// Sets the corner `index` of the player's selection, tells them over the

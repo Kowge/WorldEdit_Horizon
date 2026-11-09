@@ -7,7 +7,7 @@
 
 **A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
 
-![version](https://img.shields.io/badge/version-1.2.0-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
+![version](https://img.shields.io/badge/version-1.4.0-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
 
 </div>
 
@@ -26,6 +26,7 @@
 - 🟥 **The selection is drawn for you** — a red frame around the box and a grid inside it, one cell per block. A round shape is drawn as the blocks it covers, so the outline stands on the blocks the command would change (like F3+B). The lines are drawn over everything, so the terrain does not hide the selection.
 - 🔲 **Your own view** — `/we grid on` and `/we grid off` turn the grid inside the selection off and on; the frame stays. The setting is yours alone.
 - 🖌 **Brushes** — `/we brush sphere 5 stone` arms a brush: the wand's left click paints its shape on the block you click, or along your view when a distance is set. The pattern may name a state too: `/we brush sphere 5 oak_log[axis=x]`. `/we brush off` puts the wand back to selecting corners.
+- 🏔 **Smoothing brush** — `/we brush smooth 2 4` smooths the ground around the block you click, the way WorldEdit 7.4.6 does: a spike comes down, a hole is filled, and the column keeps its texture.
 - 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`.
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move.
@@ -89,6 +90,7 @@ All commands start with `/we`. They work only in creative mode (`/gamemode creat
 | `/we sel <shape> [sizes]` | Shape of the selection: `cube`, `sphere`, `cylinder`, `ellipsoid`. With sizes the shape appears around you at once, without them it follows the `pos1`/`pos2` corners |
 | `/we grid on` / `/we grid off` | The grid inside the selection: on or off. The frame always stays. Your setting alone |
 | `/we brush <shape> [sizes] <pattern>` | Arm a brush: the wand's left click paints it on the block you click, the right click erases it. `/we brush off` puts it away |
+| `/we brush smooth [radius] [iterations]` | Arm the smoothing brush: the left click smooths the ground around the block you click. The radius is 2 and the filter runs 4 times by default |
 | `/we brush radius <n>` | The radius of the armed brush: `7` sets it, `+1` grows it, `-1` shrinks it |
 | `/we brush distance <n>` | The brush works on the block you look at, up to 64 blocks away; where there is none — the sky — its shape goes `n` blocks ahead. `off` puts it back |
 | `/we brush at` | Paint now on the block under your view (up to 64 blocks away). `/we brush erase at` erases there |
@@ -127,6 +129,12 @@ How the sizes work:
 - `/we brush at` paints right now on the block under your view, without a click; `/we brush erase at` erases there.
 - The brush belongs to you alone. `/we brush` says which one is armed, `/we brush off` puts it away and the wand selects the corners again.
 - A stroke is one edit: `/we undo` takes it back.
+
+### The smoothing brush
+
+`/we brush smooth [radius] [iterations]` arms the smoothing brush, as in WorldEdit 7.4.6. The wand's left click then smooths the ground around the block you click; the radius is two blocks and the filter runs four times by default.
+
+The ground is smoothed the way WorldEdit smooths it: the height of every column goes through a Gaussian filter (a kernel of eleven by eleven blocks, σ = 1) and the ground then moves to the new heights. A spike comes down, a hole is filled with the ground around it, and the column keeps its texture, stretched or squeezed. `/we smooth` of the selection uses the same filter with one pass.
 
 ## How the selection is drawn
 

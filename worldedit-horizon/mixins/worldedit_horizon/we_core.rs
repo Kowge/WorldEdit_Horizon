@@ -118,6 +118,11 @@ pub trait World {
     fn dimension(&self) -> &str {
         ""
     }
+    /// Whether the block stands in the way: the terrain of a column is
+    /// measured by the solid blocks, as in WorldEdit.
+    fn is_solid(&self, block: u32) -> bool;
+    /// Whether the block is a liquid: water or lava.
+    fn is_liquid(&self, block: u32) -> bool;
 }
 
 /// A direction of the world, by compass or axis.
@@ -1343,27 +1348,59 @@ pub fn ray_blocks(
     Ray { blocks, solid }
 }
 
-/// A brush: the shape it leaves and the pattern it paints with.
+/// How many times the smooth brush filters the ground at most.
+pub const MAX_SMOOTH_ITERATIONS: i32 = 50;
+
+/// A brush: what it leaves on the world, and how far ahead of the player it
+/// works.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Brush {
-    /// The shape the brush leaves.
-    pub shape: Shape,
-    /// The shape's sizes: a cube's side, a sphere's radius, a cylinder's
-    /// radius and height, an ellipsoid's three radii.
-    pub sizes: [i32; 3],
-    /// The pattern it paints with.
-    pub pattern: Pattern,
-    /// The pattern as it was typed, for the messages.
-    pub text: String,
+    /// What the brush leaves: a shape painted with a pattern, or the ground
+    /// smoothed.
+    pub kind: BrushKind,
     /// How far ahead of the player the brush works, in blocks. Without it
     /// the brush works on the block it was used on.
     pub distance: Option<i32>,
 }
 
+/// What a brush leaves on the world.
+#[derive(Clone, Debug, PartialEq)]
+pub enum BrushKind {
+    /// A shape painted with a pattern.
+    Shape {
+        /// The shape the brush leaves.
+        shape: Shape,
+        /// The shape's sizes: a cube's side, a sphere's radius, a cylinder's
+        /// radius and height, an ellipsoid's three radii.
+        sizes: [i32; 3],
+        /// The pattern it paints with.
+        pattern: Pattern,
+        /// The pattern as it was typed, for the messages.
+        text: String,
+    },
+    /// The ground smoothed, as in WorldEdit's smooth brush.
+    Smooth {
+        /// How wide the brush works, in blocks.
+        radius: i32,
+        /// How many times the filter runs over the ground.
+        iterations: i32,
+    },
+}
+
 impl Brush {
-    /// A brush from `shape sizes... pattern`, as in `sphere 5 stone`.
+    /// A brush from `shape sizes... pattern`, as in `sphere 5 stone`, or the
+    /// smooth brush, as in `smooth 2 4`.
     pub fn parse(text: &str, resolve: Resolver<'_>) -> Result<Brush, String> {
         let words: Vec<&str> = text.split_whitespace().collect();
+        if words.is_empty() {
+            return Err(
+                "A brush is a shape, its sizes and a pattern, as in `sphere 5 stone`.".to_owned(),
+            );
+        }
+        // The smooth brush smooths the ground: it has no pattern.
+        if words[0].eq_ignore_ascii_case("smooth") {
+            return Brush::parse_smooth(&words[1..]);
+        }
         if words.len() < 3 {
             return Err(
                 "A brush is a shape, its sizes and a pattern, as in `sphere 5 stone`.".to_owned(),
@@ -1371,7 +1408,7 @@ impl Brush {
         }
         let shape = Shape::parse(words[0]).ok_or_else(|| {
             format!(
-                "`{}` is not a brush shape (cube sphere cylinder ellipsoid).",
+                "`{}` is not a brush shape (cube sphere cylinder ellipsoid smooth).",
                 words[0]
             )
         })?;
@@ -1406,10 +1443,47 @@ impl Brush {
         }
         let pattern = Pattern::parse(pattern_text, resolve)?;
         Ok(Brush {
-            shape,
-            sizes: out,
-            pattern,
-            text: pattern_text.to_owned(),
+            kind: BrushKind::Shape {
+                shape,
+                sizes: out,
+                pattern,
+                text: pattern_text.to_owned(),
+            },
+            distance: None,
+        })
+    }
+
+    /// The smooth brush: `smooth [radius] [iterations]`, as in WorldEdit.
+    /// Without them the radius is two blocks and the filter runs four times.
+    fn parse_smooth(words: &[&str]) -> Result<Brush, String> {
+        if words.len() > 2 {
+            return Err(
+                "The smooth brush takes a radius and the number of iterations, as in `smooth 2 4`."
+                    .to_owned(),
+            );
+        }
+        let radius = match words.first().copied() {
+            None => 2,
+            Some(word) => word
+                .parse::<i32>()
+                .map_err(|_| format!("`{word}` is not a number."))?,
+        };
+        let iterations = match words.get(1).copied() {
+            None => 4,
+            Some(word) => word
+                .parse::<i32>()
+                .map_err(|_| format!("`{word}` is not a number."))?,
+        };
+        if !(1..=max_radius()).contains(&radius) {
+            return Err(format!("A brush radius is 1 to {}.", max_radius()));
+        }
+        if !(1..=MAX_SMOOTH_ITERATIONS).contains(&iterations) {
+            return Err(format!(
+                "The number of iterations is 1 to {MAX_SMOOTH_ITERATIONS}."
+            ));
+        }
+        Ok(Brush {
+            kind: BrushKind::Smooth { radius, iterations },
             distance: None,
         })
     }
@@ -1417,100 +1491,161 @@ impl Brush {
     /// The blocks the brush covers when it is used on `center`: the shape
     /// sits in the middle of the block it was used on.
     pub fn positions(&self, center: Pos) -> Result<Vec<Pos>, String> {
-        match self.shape {
-            Shape::Cube => {
-                let side = self.sizes[0];
-                check_limit(side as u64 * side as u64 * side as u64)?;
-                let low = -(side / 2);
-                let mut out = Vec::with_capacity((side * side * side) as usize);
-                for x in low..=low + side - 1 {
-                    for y in low..=low + side - 1 {
-                        for z in low..=low + side - 1 {
-                            out.push(add(center, [x, y, z]));
-                        }
-                    }
-                }
-                Ok(out)
-            }
-            Shape::Sphere => {
-                let r = self.sizes[0];
-                // The limit is checked before the ball is built: a big brush
-                // must not cost a big allocation.
-                check_limit((2 * r as u64 + 1).pow(3))?;
-                if r == 0 {
-                    // A radius of zero is the block itself.
-                    return Ok(vec![center]);
-                }
-                sphere(center, r, false)
-            }
-            Shape::Cylinder => {
-                let (radius, height) = (self.sizes[0], self.sizes[1]);
-                check_limit((2 * radius as u64 + 1).pow(2) * height as u64)?;
-                let inside = in_circle(radius);
-                let disc = disc(radius, &inside, false);
-                let low = -(height / 2);
-                let mut out = Vec::with_capacity(disc.len() * height as usize);
-                for dy in low..=low + height - 1 {
-                    for &(x, z) in &disc {
-                        out.push(add(center, [x, dy, z]));
-                    }
-                }
-                Ok(out)
-            }
-            Shape::Ellipsoid => {
-                let [rx, ry, rz] = self.sizes;
-                check_limit((2 * rx as u64 + 1) * (2 * ry as u64 + 1) * (2 * rz as u64 + 1))?;
-                let (rx, ry, rz) = (rx as f64 + 0.5, ry as f64 + 0.5, rz as f64 + 0.5);
-                let mut out = Vec::new();
-                for y in -self.sizes[1]..=self.sizes[1] {
-                    for x in -self.sizes[0]..=self.sizes[0] {
-                        for z in -self.sizes[2]..=self.sizes[2] {
-                            let inside = (x as f64 / rx).powi(2)
-                                + (y as f64 / ry).powi(2)
-                                + (z as f64 / rz).powi(2);
-                            if inside <= 1.0 {
+        match &self.kind {
+            BrushKind::Shape { shape, sizes, .. } => match shape {
+                Shape::Cube => {
+                    let side = sizes[0];
+                    check_limit(side as u64 * side as u64 * side as u64)?;
+                    let low = -(side / 2);
+                    let mut out = Vec::with_capacity((side * side * side) as usize);
+                    for x in low..=low + side - 1 {
+                        for y in low..=low + side - 1 {
+                            for z in low..=low + side - 1 {
                                 out.push(add(center, [x, y, z]));
                             }
                         }
                     }
+                    Ok(out)
+                }
+                Shape::Sphere => {
+                    let r = sizes[0];
+                    // The limit is checked before the ball is built: a big brush
+                    // must not cost a big allocation.
+                    check_limit((2 * r as u64 + 1).pow(3))?;
+                    if r == 0 {
+                        // A radius of zero is the block itself.
+                        return Ok(vec![center]);
+                    }
+                    sphere(center, r, false)
+                }
+                Shape::Cylinder => {
+                    let (radius, height) = (sizes[0], sizes[1]);
+                    check_limit((2 * radius as u64 + 1).pow(2) * height as u64)?;
+                    let inside = in_circle(radius);
+                    let disc = disc(radius, &inside, false);
+                    let low = -(height / 2);
+                    let mut out = Vec::with_capacity(disc.len() * height as usize);
+                    for dy in low..=low + height - 1 {
+                        for &(x, z) in &disc {
+                            out.push(add(center, [x, dy, z]));
+                        }
+                    }
+                    Ok(out)
+                }
+                Shape::Ellipsoid => {
+                    let [rx, ry, rz] = *sizes;
+                    check_limit((2 * rx as u64 + 1) * (2 * ry as u64 + 1) * (2 * rz as u64 + 1))?;
+                    let (rx, ry, rz) = (rx as f64 + 0.5, ry as f64 + 0.5, rz as f64 + 0.5);
+                    let mut out = Vec::new();
+                    for y in -sizes[1]..=sizes[1] {
+                        for x in -sizes[0]..=sizes[0] {
+                            for z in -sizes[2]..=sizes[2] {
+                                let inside = (x as f64 / rx).powi(2)
+                                    + (y as f64 / ry).powi(2)
+                                    + (z as f64 / rz).powi(2);
+                                if inside <= 1.0 {
+                                    out.push(add(center, [x, y, z]));
+                                }
+                            }
+                        }
+                    }
+                    Ok(out)
+                }
+            },
+            BrushKind::Smooth { radius, .. } => {
+                // The smooth brush works on the ground around the block: the
+                // columns it reads and the heights it moves.
+                let region = smooth_region(center, *radius);
+                check_limit(region.volume())?;
+                let mut out = Vec::new();
+                for x in region.min[0]..=region.max[0] {
+                    for z in region.min[2]..=region.max[2] {
+                        for y in region.min[1]..=region.max[1] {
+                            out.push([x, y, z]);
+                        }
+                    }
                 }
                 Ok(out)
             }
         }
     }
 
+    /// The pattern the brush paints with, when it paints a shape.
+    pub fn pattern(&self) -> Option<&Pattern> {
+        match &self.kind {
+            BrushKind::Shape { pattern, .. } => Some(pattern),
+            BrushKind::Smooth { .. } => None,
+        }
+    }
+
+    /// The shape and the sizes the brush paints with, when it paints a shape.
+    pub fn shape(&self) -> Option<(Shape, [i32; 3])> {
+        match &self.kind {
+            BrushKind::Shape { shape, sizes, .. } => Some((*shape, *sizes)),
+            BrushKind::Smooth { .. } => None,
+        }
+    }
+
+    /// The pattern as it was typed, for the messages.
+    pub fn text(&self) -> Option<&str> {
+        match &self.kind {
+            BrushKind::Shape { text, .. } => Some(text),
+            BrushKind::Smooth { .. } => None,
+        }
+    }
+
     /// The brush's radius: a sphere's and a cylinder's radius, a cube's half
-    /// side, an ellipsoid's longest radius.
+    /// side, an ellipsoid's longest radius, the smooth brush's own width.
     pub fn radius(&self) -> i32 {
-        match self.shape {
-            Shape::Cube => (self.sizes[0] - 1) / 2,
-            Shape::Sphere | Shape::Cylinder => self.sizes[0],
-            Shape::Ellipsoid => self.sizes[0].max(self.sizes[1]).max(self.sizes[2]),
+        match &self.kind {
+            BrushKind::Shape { shape, sizes, .. } => match shape {
+                Shape::Cube => (sizes[0] - 1) / 2,
+                Shape::Sphere | Shape::Cylinder => sizes[0],
+                Shape::Ellipsoid => sizes[0].max(sizes[1]).max(sizes[2]),
+            },
+            BrushKind::Smooth { radius, .. } => *radius,
         }
     }
 
     /// The same brush with another radius: a cube keeps its shape, an
-    /// ellipsoid keeps its proportions.
+    /// ellipsoid keeps its proportions, the smooth brush keeps the number of
+    /// iterations.
     pub fn with_radius(&self, radius: i32) -> Result<Brush, String> {
         if !(0..=max_radius()).contains(&radius) {
             return Err(format!("A brush radius is 0 to {}.", max_radius()));
         }
-        let mut sizes = self.sizes;
-        match self.shape {
-            Shape::Cube => sizes[0] = radius * 2 + 1,
-            Shape::Sphere | Shape::Cylinder => sizes[0] = radius,
-            Shape::Ellipsoid => {
-                let was = self.radius().max(1);
-                for s in sizes.iter_mut() {
-                    *s = ((*s as i64 * radius as i64).div_euclid(was as i64)) as i32;
+        let kind = match &self.kind {
+            BrushKind::Shape {
+                shape,
+                sizes,
+                pattern,
+                text,
+            } => {
+                let mut sizes = *sizes;
+                match shape {
+                    Shape::Cube => sizes[0] = radius * 2 + 1,
+                    Shape::Sphere | Shape::Cylinder => sizes[0] = radius,
+                    Shape::Ellipsoid => {
+                        let was = self.radius().max(1);
+                        for s in sizes.iter_mut() {
+                            *s = ((*s as i64 * radius as i64).div_euclid(was as i64)) as i32;
+                        }
+                    }
+                }
+                BrushKind::Shape {
+                    shape: *shape,
+                    sizes,
+                    pattern: pattern.clone(),
+                    text: text.clone(),
                 }
             }
-        }
+            BrushKind::Smooth { iterations, .. } => BrushKind::Smooth {
+                radius,
+                iterations: *iterations,
+            },
+        };
         Ok(Brush {
-            shape: self.shape,
-            sizes,
-            pattern: self.pattern.clone(),
-            text: self.text.clone(),
+            kind,
             distance: self.distance,
         })
     }
@@ -1525,10 +1660,7 @@ impl Brush {
             }
         }
         Ok(Brush {
-            shape: self.shape,
-            sizes: self.sizes,
-            pattern: self.pattern.clone(),
-            text: self.text.clone(),
+            kind: self.kind.clone(),
             distance,
         })
     }
@@ -1544,16 +1676,28 @@ impl Brush {
 
     /// The brush as the messages write it.
     pub fn describe(&self) -> String {
-        let shape = match self.shape {
-            Shape::Cube => format!("cube {}", self.sizes[0]),
-            Shape::Sphere => format!("sphere r={}", self.sizes[0]),
-            Shape::Cylinder => format!("cylinder r={} h={}", self.sizes[0], self.sizes[1]),
-            Shape::Ellipsoid => format!(
-                "ellipsoid {}x{}x{}",
-                self.sizes[0], self.sizes[1], self.sizes[2]
-            ),
+        let mut out = match &self.kind {
+            BrushKind::Shape {
+                shape,
+                sizes,
+                text,
+                ..
+            } => {
+                let shape = match shape {
+                    Shape::Cube => format!("cube {}", sizes[0]),
+                    Shape::Sphere => format!("sphere r={}", sizes[0]),
+                    Shape::Cylinder => format!("cylinder r={} h={}", sizes[0], sizes[1]),
+                    Shape::Ellipsoid => format!(
+                        "ellipsoid {}x{}x{}",
+                        sizes[0], sizes[1], sizes[2]
+                    ),
+                };
+                format!("{shape}, {text}")
+            }
+            BrushKind::Smooth { radius, iterations } => {
+                format!("smooth r={radius}, {iterations} iterations")
+            }
         };
-        let mut out = format!("{shape}, {}", self.text);
         if let Some(distance) = self.distance {
             out.push_str(&format!(", {distance} blocks ahead"));
         }
@@ -1900,78 +2044,150 @@ pub fn replace_except<W: World>(
     fill(world, &hits, to)
 }
 
-/// `smooth`: each column's top block moves to the average height of its
-/// 3x3 neighbourhood, `iterations` times. Blocks are added below a raised
-/// surface (the block under the old top) and removed from a lowered one.
+/// The ground the smooth brush works on: the columns around `center`, and
+/// the heights around it, as in WorldEdit.
+pub fn smooth_region(center: Pos, radius: i32) -> Region {
+    Region::cube(
+        [center[0] - radius, center[1] - radius, center[2] - radius],
+        [
+            center[0] + radius,
+            center[1] + radius + 10,
+            center[2] + radius,
+        ],
+    )
+}
+
+/// `smooth`: the ground is smoothed, as WorldEdit does it. The height of
+/// every column goes through a Gaussian filter, and the ground moves to the
+/// new heights.
 pub fn smooth_writes<W: World>(
     world: &W,
     region: &Region,
     air: u32,
     iterations: u32,
 ) -> Vec<(Pos, u32)> {
-    let w = (region.max[0] - region.min[0] + 1) as usize;
-    let d = (region.max[2] - region.min[2] + 1) as usize;
-    let floor = region.min[1] - 1;
-    let mut start = vec![floor; w * d];
-    for i in 0..w {
-        for k in 0..d {
-            let (x, z) = (region.min[0] + i as i32, region.min[2] + k as i32);
-            for y in (region.min[1]..=region.max[1]).rev() {
-                if world.get([x, y, z]) != air {
-                    start[i * d + k] = y;
+    let (min, max) = (region.min, region.max);
+    let width = (max[0] - min[0] + 1) as usize;
+    let depth = (max[2] - min[2] + 1) as usize;
+    // The map of the columns' heights: the topmost solid block of every
+    // column, as in WorldEdit. A column without one is as low as the region.
+    let mut heights = vec![min[1]; width * depth];
+    for z in 0..depth {
+        for x in 0..width {
+            let (wx, wz) = (min[0] + x as i32, min[2] + z as i32);
+            for y in (min[1]..=max[1]).rev() {
+                if world.is_solid(world.get([wx, y, wz])) {
+                    heights[z * width + x] = y;
                     break;
                 }
             }
         }
     }
-    let mut now = start.clone();
+    // The filter runs over the map: every height moves towards the average
+    // of its neighbours.
+    let kernel = gaussian_kernel(5, 1.0);
+    let mut filtered = heights.clone();
     for _ in 0..iterations {
-        let before = now.clone();
-        for i in 0..w {
-            for k in 0..d {
-                if start[i * d + k] == floor {
+        filtered = filter_heights(&filtered, width, depth, &kernel);
+    }
+    // And the ground moves to the new heights.
+    let mut out = Vec::new();
+    for z in 0..depth {
+        for x in 0..width {
+            let index = z * width + x;
+            let cur = heights[index];
+            let new = filtered[index].min(max[1]);
+            let (wx, wz) = (min[0] + x as i32, min[2] + z as i32);
+            if new > cur {
+                // The ground rises: the top block goes up and the column
+                // under it is stretched to fill the gap. A liquid on top
+                // holds the ground down, as in WorldEdit.
+                let existing = world.get([wx, cur, wz]);
+                if world.is_liquid(existing) {
                     continue;
                 }
-                let (mut sum, mut n) = (0, 0);
-                for di in -1i32..=1 {
-                    for dk in -1i32..=1 {
-                        let (a, b) = (i as i32 + di, k as i32 + dk);
-                        if a >= 0 && b >= 0 && (a as usize) < w && (b as usize) < d {
-                            sum += before[a as usize * d + b as usize];
-                            n += 1;
-                        }
-                    }
+                out.push(([wx, new, wz], existing));
+                let scale = (cur - min[1]) as f64 / (new - min[1]) as f64;
+                let mut y = new - 1 - min[1];
+                while y >= 0 {
+                    let from = (y as f64 * scale).floor() as i32;
+                    out.push(([wx, min[1] + y, wz], world.get([wx, min[1] + from, wz])));
+                    y -= 1;
                 }
-                now[i * d + k] = ((sum as f64 / n as f64).round() as i32)
-                    .clamp(region.min[1], region.max[1]);
+            } else if cur > new {
+                // The ground sinks: the column is squeezed together and what
+                // is above the new height goes away.
+                let scale = if new == min[1] {
+                    0.0
+                } else {
+                    (cur - min[1]) as f64 / (new - min[1]) as f64
+                };
+                let mut y = 0;
+                while y < new - min[1] {
+                    let from = (y as f64 * scale).floor() as i32;
+                    out.push(([wx, min[1] + y, wz], world.get([wx, min[1] + from, wz])));
+                    y += 1;
+                }
+                out.push(([wx, new, wz], world.get([wx, cur, wz])));
+                let mut y = new + 1;
+                while y <= cur {
+                    out.push(([wx, y, wz], air));
+                    y += 1;
+                }
             }
         }
     }
-    let mut out = Vec::new();
-    for i in 0..w {
-        for k in 0..d {
-            let (from, to) = (start[i * d + k], now[i * d + k]);
-            if from == floor || from == to {
-                continue;
-            }
-            let (x, z) = (region.min[0] + i as i32, region.min[2] + k as i32);
-            let top = world.get([x, from, z]);
-            if to > from {
-                let under = if from > region.min[1] {
-                    world.get([x, from - 1, z])
-                } else {
-                    top
-                };
-                for y in from..to {
-                    out.push(([x, y, z], under));
+    out
+}
+
+/// The Gaussian kernel of WorldEdit: a square of `radius` around the middle,
+/// weighted by a bell curve of the given width.
+fn gaussian_kernel(radius: i32, sigma: f64) -> Vec<f32> {
+    let diameter = (radius * 2 + 1) as usize;
+    let sigma22 = 2.0 * sigma * sigma;
+    let constant = std::f64::consts::PI * sigma22;
+    let mut data = vec![0.0f32; diameter * diameter];
+    let mut sum = 0.0f32;
+    for y in -radius..=radius {
+        for x in -radius..=radius {
+            let value = (((-(x * x + y * y) as f64) / sigma22).exp() / constant) as f32;
+            data[(y + radius) as usize * diameter + (x + radius) as usize] = value;
+            sum += value;
+        }
+    }
+    for value in data.iter_mut() {
+        *value /= sum;
+    }
+    data
+}
+
+/// The filter of WorldEdit: every height becomes the weighted average of the
+/// heights around it. The edge of the map folds inwards, as in WorldEdit.
+fn filter_heights(heights: &[i32], width: usize, depth: usize, kernel: &[f32]) -> Vec<i32> {
+    let diameter = (kernel.len() as f64).sqrt().round() as usize;
+    let origin = (diameter - 1) >> 1;
+    let mut out = vec![0i32; heights.len()];
+    for y in 0..depth {
+        for x in 0..width {
+            let mut sum = 0.0f32;
+            for ky in 0..diameter {
+                let mut offset_y = y as i32 + ky as i32 - origin as i32;
+                if offset_y < 0 || offset_y >= depth as i32 {
+                    offset_y = y as i32;
                 }
-                out.push(([x, to, z], top));
-            } else {
-                for y in (to + 1)..=from {
-                    out.push(([x, y, z], air));
+                for kx in 0..diameter {
+                    let weight = kernel[ky * diameter + kx];
+                    if weight == 0.0 {
+                        continue;
+                    }
+                    let mut offset_x = x as i32 + kx as i32 - origin as i32;
+                    if offset_x < 0 || offset_x >= width as i32 {
+                        offset_x = x as i32;
+                    }
+                    sum += weight * heights[offset_y as usize * width + offset_x as usize] as f32;
                 }
-                out.push(([x, to, z], top));
             }
+            out[y * width + x] = (sum + 0.5).floor() as i32;
         }
     }
     out
@@ -2447,6 +2663,14 @@ mod tests {
         fn dimension(&self) -> &str {
             &self.1
         }
+        /// Every block but the air stands in the way.
+        fn is_solid(&self, block: u32) -> bool {
+            block != 0
+        }
+        /// No block is a liquid in the tests.
+        fn is_liquid(&self, _block: u32) -> bool {
+            false
+        }
     }
 
     /// The blocks the tests know: `air`, `stone`, `dirt`, `glass`, and `log`,
@@ -2782,23 +3006,94 @@ mod tests {
     }
 
     #[test]
-    fn smooth_levels_a_spike() {
-        let mut w = Map::default();
-        for x in 0..3 {
-            for z in 0..3 {
-                w.0.insert([x, 0, z], 1);
+    fn smooth_lowers_a_spike_to_the_height_of_the_filter() {
+        // The ground of the spike: a flat floor of three by three with a
+        // column of three blocks in the middle.
+        let spike = || {
+            let mut w = Map::default();
+            for x in 0..3 {
+                for z in 0..3 {
+                    w.0.insert([x, 0, z], 1);
+                }
             }
-        }
-        for y in 1..=3 {
-            w.0.insert([1, y, 1], 1);
-        }
+            for y in 1..=3 {
+                w.0.insert([1, y, 1], 1);
+            }
+            w
+        };
         let c = Region::cube([0, 0, 0], [2, 5, 2]);
+        // One pass of the filter: the spike of three goes down to one, as in
+        // WorldEdit.
+        let mut w = spike();
         let writes = smooth_writes(&w, &c, 0, 1);
         apply(&mut w, writes);
         assert_eq!(w.get([1, 3, 1]), 0, "the spike came down");
-        assert_ne!(w.get([0, 1, 0]), 0, "its sides came up");
-        let flat = smooth_writes(&w, &Region::cube([5, 0, 5], [6, 3, 6]), 0, 3);
-        assert!(flat.is_empty());
+        assert_eq!(w.get([1, 2, 1]), 0, "the spike came down");
+        assert_eq!(w.get([1, 1, 1]), 1, "its top block lies on the new height");
+        assert_eq!(w.get([0, 0, 0]), 1, "the ground around stayed");
+        assert_eq!(w.get([0, 1, 0]), 0, "the ground around did not rise");
+        // Four passes: the spike is gone.
+        let mut w = spike();
+        let writes = smooth_writes(&w, &c, 0, 4);
+        apply(&mut w, writes);
+        assert_eq!(w.get([1, 1, 1]), 0, "the spike is gone");
+        assert_eq!(w.get([1, 0, 1]), 1, "the floor stayed");
+    }
+
+    #[test]
+    fn smooth_fills_a_hole_with_the_ground_around_it() {
+        let mut w = Map::default();
+        for x in 0..3 {
+            for z in 0..3 {
+                for y in 0..=2 {
+                    w.0.insert([x, y, z], 1);
+                }
+            }
+        }
+        // A hole in the middle, one block deep.
+        w.0.insert([1, 1, 1], 0);
+        w.0.insert([1, 2, 1], 0);
+        let c = Region::cube([0, 0, 0], [2, 5, 2]);
+        let writes = smooth_writes(&w, &c, 0, 1);
+        apply(&mut w, writes);
+        // The hole went down by one block, as in WorldEdit.
+        assert_eq!(w.get([1, 2, 1]), 0, "the hole is still open");
+        assert_eq!(w.get([1, 1, 1]), 1, "the ground came up into the hole");
+        assert_eq!(w.get([0, 2, 0]), 1, "the ground around stayed");
+    }
+
+    #[test]
+    fn smooth_leaves_flat_ground_alone() {
+        let mut w = Map::default();
+        for x in 0..3 {
+            for z in 0..3 {
+                for y in 0..=2 {
+                    w.0.insert([x, y, z], 1);
+                }
+            }
+        }
+        let c = Region::cube([0, 0, 0], [2, 5, 2]);
+        // The filter gives every column the same height back.
+        assert!(smooth_writes(&w, &c, 0, 4).is_empty());
+        // And a place without any ground is left alone too.
+        let empty = Region::cube([5, 0, 5], [6, 3, 6]);
+        assert!(smooth_writes(&w, &empty, 0, 3).is_empty());
+    }
+
+    #[test]
+    fn smooth_keeps_a_slope() {
+        // A ramp: every column is one block higher than the one before.
+        let mut w = Map::default();
+        for x in 0..5 {
+            for z in 0..5 {
+                for y in 0..=x {
+                    w.0.insert([x, y, z], 1);
+                }
+            }
+        }
+        let c = Region::cube([0, 0, 0], [4, 6, 4]);
+        // The filter keeps a ramp a ramp.
+        assert!(smooth_writes(&w, &c, 0, 4).is_empty());
     }
 
     #[test]
@@ -3122,20 +3417,62 @@ mod tests {
     #[test]
     fn a_brush_is_a_shape_its_sizes_and_a_pattern() {
         let b = Brush::parse("sphere 5 stone", &names).unwrap();
-        assert_eq!(b.shape, Shape::Sphere);
-        assert_eq!(b.sizes, [5, 0, 0]);
-        assert_eq!(b.text, "stone");
+        assert_eq!(b.shape(), Some((Shape::Sphere, [5, 0, 0])));
+        assert_eq!(b.text(), Some("stone"));
         assert_eq!(b.describe(), "sphere r=5, stone");
         let c = Brush::parse("cylinder 3 4 stone", &names).unwrap();
-        assert_eq!(c.sizes, [3, 4, 0]);
+        assert_eq!(c.shape(), Some((Shape::Cylinder, [3, 4, 0])));
         let e = Brush::parse("ellipsoid 4 2 4 dirt", &names).unwrap();
-        assert_eq!(e.sizes, [4, 2, 4]);
+        assert_eq!(e.shape(), Some((Shape::Ellipsoid, [4, 2, 4])));
         // A brush needs a shape, its sizes and a pattern.
         assert!(Brush::parse("sphere stone", &names).is_err());
         assert!(Brush::parse("cube 2 3 stone", &names).is_err());
         assert!(Brush::parse("pyramid 2 stone", &names).is_err());
         assert!(Brush::parse("sphere 0 stone", &names).is_err());
         assert!(Brush::parse("sphere 5 nosuchblock", &names).is_err());
+    }
+
+    #[test]
+    fn the_smooth_brush_takes_a_radius_and_the_iterations() {
+        // As in WorldEdit: a radius of two and four iterations by default.
+        let b = Brush::parse("smooth", &names).unwrap();
+        assert_eq!(b.kind, BrushKind::Smooth { radius: 2, iterations: 4 });
+        assert_eq!(b.describe(), "smooth r=2, 4 iterations");
+        assert_eq!(b.radius(), 2);
+        let c = Brush::parse("smooth 5 1", &names).unwrap();
+        assert_eq!(c.kind, BrushKind::Smooth { radius: 5, iterations: 1 });
+        // The smooth brush paints no pattern.
+        assert!(b.pattern().is_none());
+        // Only a radius and the number of iterations.
+        assert!(Brush::parse("smooth 2 4 6", &names).is_err());
+        assert!(Brush::parse("smooth x", &names).is_err());
+        assert!(Brush::parse("smooth 2 x", &names).is_err());
+        // A radius or a number of iterations out of the limits is refused.
+        assert!(Brush::parse("smooth 0", &names).is_err());
+        assert!(Brush::parse("smooth 2 0", &names).is_err());
+        assert!(Brush::parse("smooth 2 100", &names).is_err());
+        // The brush keeps its iterations when the radius changes.
+        assert_eq!(
+            c.with_radius(3).unwrap().kind,
+            BrushKind::Smooth {
+                radius: 3,
+                iterations: 1
+            }
+        );
+    }
+
+    #[test]
+    fn the_smooth_brush_works_around_the_block_it_was_used_on() {
+        let b = Brush::parse("smooth 2", &names).unwrap();
+        let p = b.positions([10, 20, 30]).unwrap();
+        // The columns around the block, and the heights around it, as in
+        // WorldEdit.
+        assert!(p.contains(&[10, 20, 30]));
+        assert!(p.contains(&[8, 18, 28]));
+        assert!(p.contains(&[12, 32, 32]));
+        assert!(!p.contains(&[13, 20, 30]));
+        assert!(!p.contains(&[10, 17, 30]));
+        assert!(!p.contains(&[10, 33, 30]));
     }
 
     #[test]
@@ -3181,7 +3518,7 @@ mod tests {
         let mut w = Map::default();
         let mut s = Session::default();
         let b = Brush::parse("cube 3 stone", &names).unwrap();
-        let edit = fill(&mut w, &b.positions([0, 0, 0]).unwrap(), &b.pattern);
+        let edit = fill(&mut w, &b.positions([0, 0, 0]).unwrap(), b.pattern().unwrap());
         assert_eq!(edit.len(), 27);
         s.record(edit);
         assert_eq!(w.get([0, 0, 0]), 1);
@@ -3195,16 +3532,19 @@ mod tests {
         let b = Brush::parse("sphere 5 stone", &names).unwrap();
         assert_eq!(b.radius(), 5);
         let bigger = b.with_radius(7).unwrap();
-        assert_eq!(bigger.sizes, [7, 0, 0]);
+        assert_eq!(bigger.shape(), Some((Shape::Sphere, [7, 0, 0])));
         assert_eq!(bigger.describe(), "sphere r=7, stone");
         // A cube's radius is its half side.
         let c = Brush::parse("cube 5 stone", &names).unwrap();
         assert_eq!(c.radius(), 2);
-        assert_eq!(c.with_radius(3).unwrap().sizes, [7, 0, 0]);
+        assert_eq!(c.with_radius(3).unwrap().shape(), Some((Shape::Cube, [7, 0, 0])));
         // An ellipsoid keeps its proportions.
         let e = Brush::parse("ellipsoid 4 2 4 stone", &names).unwrap();
         assert_eq!(e.radius(), 4);
-        assert_eq!(e.with_radius(6).unwrap().sizes, [6, 3, 6]);
+        assert_eq!(
+            e.with_radius(6).unwrap().shape(),
+            Some((Shape::Ellipsoid, [6, 3, 6]))
+        );
         // A radius of zero is the block itself.
         let one = b.with_radius(0).unwrap();
         assert_eq!(one.positions([1, 2, 3]).unwrap(), vec![[1, 2, 3]]);
@@ -3268,8 +3608,8 @@ mod tests {
         // The distance stays.
         assert_eq!(new.distance, Some(20));
         // The shape and the pattern are the new ones.
-        assert_eq!(new.sizes, [4, 0, 0]);
-        assert_eq!(new.text, "dirt");
+        assert_eq!(new.shape(), Some((Shape::Sphere, [4, 0, 0])));
+        assert_eq!(new.text(), Some("dirt"));
         // A brush without a distance gives none.
         let plain = Brush::parse("sphere 4 dirt", &names).unwrap();
         assert_eq!(plain.with_distance_of(&plain).unwrap().distance, None);
