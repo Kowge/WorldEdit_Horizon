@@ -7,9 +7,10 @@ use crate::game::{
     Game,
     native_server::{NativeCommand, NativeServerPlayer},
     we_core::{
-        self, Clipboard, Dir, Pattern, Pos, Region, Session, Sessions, Shape, World,
+        self, Clipboard, Cuboid, Dir, Pattern, Pos, Region, Session, Sessions, Shape, World,
     },
 };
+use horizon_client::streaming::{ChunkGenerator, Proto};
 use horizon_client::text::{self, Text};
 use horizon_world::block_state_properties::BlockProperties;
 use horizon_world::chunk::BlockState;
@@ -21,11 +22,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "1.4.0";
+pub const VERSION: &str = "1.5.0";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
 pub const WAND: &str = "minecraft:wooden_axe";
+/// How many chunks around the player `/we regen` may regenerate.
+const MAX_REGEN_RADIUS: i32 = 4;
 /// WorldEdit works only in creative mode (`/gamemode creative`).
 fn creative(player: &NativeServerPlayer) -> bool {
     player.game_mode == 1
@@ -239,6 +242,7 @@ const USAGES: &[&str] = &[
     "we fixwater",
     "we fixlava",
     "we smooth [iterations:integer]",
+    "we regen [radius:integer]",
     "we physics [state:word]",
     "we overlay <pattern:word>",
     "we naturalize",
@@ -305,7 +309,7 @@ wand | brush <shape> [sizes] <pattern> | brush smooth [radius] [iterations] (the
 expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
 pyramid/hpyramid <pattern> <size> | copy | cut | paste [skipair] | rot <deg> | flip <dir> | \
-clearclipboard | schematic save|load|list|delete <name> (the build of the selection, kept in a file of the world's folder; /we paste puts it down) | stack <n> <dir> | move <n> <dir> | undo [n] | redo [n] | physics [on|off] | drain | fixwater | fixlava | smooth [n] | limit [blocks|radius|distance|history <n>|reset]. \
+clearclipboard | schematic save|load|list|delete <name> (the build of the selection, kept in a file of the world's folder; /we paste puts it down) | stack <n> <dir> | move <n> <dir> | undo [n] | redo [n] | physics [on|off] | drain | fixwater | fixlava | smooth [n] | regen [n] (the ground of the chunks around you, as the world made it) | limit [blocks|radius|distance|history <n>|reset]. \
 Patterns: stone, 50%stone,dirt, oak_log[axis=x]. Directions: north south east west up down.";
 
 /// A player's command, when it is WorldEdit's.
@@ -755,6 +759,65 @@ fn run(
             let n = edit.len();
             session.record(edit);
             Ok(format!("{n} blocks changed."))
+        }
+        "regen" => {
+            // The ground of the chunks around the player, as the level's own
+            // generator made it: the world itself, not a copy of it.
+            let radius = if args.len() > 1 {
+                number(args, 1)?.clamp(0, MAX_REGEN_RADIUS) as i32
+            } else {
+                0
+            };
+            let Some(terrain) = game.end.locator() else {
+                return Err(
+                    "This level has no generator: its ground cannot be regenerated.".to_owned(),
+                );
+            };
+            let origin = feet(player);
+            let (cx, cz) = (origin[0] >> 4, origin[2] >> 4);
+            let dimension = player.dimension.clone();
+            let mut worker = terrain.worker();
+            let mut writes: Vec<(Pos, u32)> = Vec::new();
+            let (mut chunks, mut unloaded) = (0, 0);
+            let edit = {
+                let mut w = GameWorld { game, dimension };
+                for dz in -radius..=radius {
+                    for dx in -radius..=radius {
+                        let (x, z) = (cx + dx, cz + dz);
+                        // A chunk that is not in the level cannot be written.
+                        if w.game.world.chunks.get(&(x, z)).is_none() {
+                            unloaded += 1;
+                            continue;
+                        }
+                        let mut region: [Proto; 9] = std::array::from_fn(|i| {
+                            terrain.proto(&mut worker, x + i as i32 % 3 - 1, z + i as i32 / 3 - 1)
+                        });
+                        terrain.decorate(&mut worker, &mut region);
+                        let [_, _, _, _, center, ..] = region;
+                        let chunk = terrain.finish(center);
+                        let box_ = Cuboid::new(
+                            [x * 16, chunk.min_y(), z * 16],
+                            [x * 16 + 15, chunk.max_y() - 1, z * 16 + 15],
+                        );
+                        writes.extend(we_core::regen_writes(&w, &box_, |p| {
+                            chunk.get(p[0] - x * 16, p[1], p[2] - z * 16)
+                        }));
+                        chunks += 1;
+                    }
+                }
+                we_core::check_limit(writes.len() as u64)?;
+                we_core::apply(&mut w, writes)
+            };
+            let n = edit.len();
+            session.record(edit);
+            Ok(format!(
+                "{n} blocks changed in {chunks} chunks.{}",
+                if unloaded > 0 {
+                    format!(" {unloaded} chunks are not loaded.")
+                } else {
+                    String::new()
+                }
+            ))
         }
         "outset" | "inset" => {
             let n = number(args, 1)?;

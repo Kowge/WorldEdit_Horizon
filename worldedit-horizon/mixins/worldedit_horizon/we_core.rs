@@ -2193,6 +2193,29 @@ fn filter_heights(heights: &[i32], width: usize, depth: usize, kernel: &[f32]) -
     out
 }
 
+/// `regen`: the world put back as the generator made it. `generated` gives
+/// the block the generator put at a position; every block that differs from
+/// the world is a write.
+pub fn regen_writes<W: World>(
+    world: &W,
+    box_: &Cuboid,
+    mut generated: impl FnMut(Pos) -> u32,
+) -> Vec<(Pos, u32)> {
+    let mut out = Vec::new();
+    for x in box_.min[0]..=box_.max[0] {
+        for y in box_.min[1]..=box_.max[1] {
+            for z in box_.min[2]..=box_.max[2] {
+                let p = [x, y, z];
+                let want = generated(p);
+                if world.get(p) != want {
+                    out.push((p, want));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// How many blocks of `of` are in `positions`.
 pub fn count<W: World>(world: &W, positions: &[Pos], of: &[u32]) -> u64 {
     positions
@@ -3613,6 +3636,25 @@ mod tests {
         // A brush without a distance gives none.
         let plain = Brush::parse("sphere 4 dirt", &names).unwrap();
         assert_eq!(plain.with_distance_of(&plain).unwrap().distance, None);
+    }
+
+    #[test]
+    fn regen_puts_the_blocks_back_as_the_generator_made_them() {
+        let mut w = Map::default();
+        for x in 0..3 {
+            for z in 0..3 {
+                w.0.insert([x, 0, z], 1);
+            }
+        }
+        // A block the player put down.
+        w.0.insert([1, 1, 1], 2);
+        let box_ = Cuboid::new([0, 0, 0], [2, 2, 2]);
+        let writes = regen_writes(&w, &box_, |p| if p[1] == 0 { 1 } else { 0 });
+        // Only what the player changed goes away.
+        assert_eq!(writes, vec![([1, 1, 1], 0)]);
+        apply(&mut w, writes);
+        assert_eq!(w.get([1, 1, 1]), 0);
+        assert_eq!(w.get([1, 0, 1]), 1);
     }
 
     #[test]

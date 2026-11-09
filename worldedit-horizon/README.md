@@ -46,6 +46,12 @@ The brush goes through the blocks it covered last, as if they were air: it does 
 
 The brush belongs to the player alone: `/we brush` says which one is armed and `/we brush off` puts it away, so the wand selects the corners again. A stroke is one edit in the history, so `/we undo` takes it back.
 
+## Regenerate the ground
+
+`/we regen [radius]` puts the ground back as the level's own generator made it. The chunk under the player — or the square of `radius` chunks around him, up to four — is made again by the generator of the level itself: the same seed, the same biomes, the same settings, so the landscape comes back as it was born. Every block that differs from the world is a write, so the ground returns and whatever was built on it goes away.
+
+It is not a copy of the world: the terrain comes from the generator, the only honest source of the original land. Chunks that are not loaded are left alone and counted in the message. The change is one edit in the history, so `/we undo` takes it back.
+
 ## Schematics
 
 `/we schematic save <name>` writes the build of the current selection into a file of the player's own folder: the mod's own folder of the instance, `horizon-mods/.horizon-mod-data/worldedit_horizon/`. The name holds letters, digits, `_` and `-` only (up to 48 characters), so it cannot leave that folder.

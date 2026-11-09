@@ -7,7 +7,7 @@
 
 **A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
 
-![version](https://img.shields.io/badge/version-1.4.0-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
+![version](https://img.shields.io/badge/version-1.5.0-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
 
 </div>
 
@@ -29,6 +29,7 @@
 - 🏔 **Smoothing brush** — `/we brush smooth 2 4` smooths the ground around the block you click, the way WorldEdit 7.4.6 does: a spike comes down, a hole is filled, and the column keeps its texture.
 - 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`.
+- 🌱 **Regeneration** — `/we regen` puts the ground of the chunk you stand on back as the world made it: the level's own generator makes the landscape again, so your builds go and the original terrain comes back. `/we regen 1` does the nine chunks around you.
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move.
 - 💾 **Schematics** — `/we schematic save <name>` writes the build of the selection into a file of your own folder; `/we schematic load` reads it back and `/we paste` puts it down in front of you. Options > Horizon Settings > Mods has a button that opens the folder.
 - ↩️ **Undo / redo** with configurable history. An edit keeps the dimension it was made in, so undoing it in another one is refused and the edit waits for you there.
@@ -168,6 +169,7 @@ The ground is smoothed the way WorldEdit smooths it: the height of every column 
 | `/we fixwater` | Turn flowing water in the selection into source blocks |
 | `/we fixlava` | The same for lava |
 | `/we smooth [n]` | Smooth the terrain in the selection, n passes (1–50, default 1) |
+| `/we regen [radius]` | Put the ground of the chunks around you back as the world made it: the level's own generator makes the landscape again. The radius is in chunks (0 = the chunk under you, default 0) |
 | `/we count <blocks>` | Count blocks in the selection. A block without a state counts every state of it, `oak_log[axis=x]` only that one |
 | `/we fill <pattern> <radius> [depth]` | Fill the hole around you: each column down to the first block |
 | `/we fillr <pattern> <radius> [depth]` | The same, but the whole air of the ball |
@@ -245,7 +247,7 @@ Limits are shared by all players and reset when the game restarts; only an opera
 
 ## Notes
 
-`drain` does not remove water inside waterlogged blocks (e.g. stairs). `smooth` works on the highest non-air block of each selection column. `regen` (regenerating an area) is not implemented: mods have no access to the world generator.
+`drain` does not remove water inside waterlogged blocks (e.g. stairs). `smooth` works on the highest non-air block of each selection column. `regen` takes the ground from the level's own generator, so it needs a level that has one, and it takes the buildings on that ground away as well.
 
 ## Patterns and limits
 
@@ -258,7 +260,7 @@ Limits are shared by all players and reset when the game restarts; only an opera
 
 ## ⚠️ Known limitations
 
-- `regen` is not implemented: mods have no access to the world generator.
+- `regen` puts the ground back from the generator of the level, so a building on that ground is taken away with it.
 - `rotate` is named `/we rot` because vanilla already has `/rotate`.
 - Block orientation (`facing`) is not rotated by `rot` / `flip`.
 - Limits, physics mode and history are not saved between game launches.
