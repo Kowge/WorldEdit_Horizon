@@ -162,4 +162,98 @@ mod tests {
             assert!(l.end.iter().all(|v| v.fract() == 0.0), "{:?}", l.end);
         }
     }
+
+    #[test]
+    fn a_hostile_header_is_refused() {
+        // An index outside the count of the file.
+        assert!(!we_core::part_ok(5, 3, 10));
+        // A count of a size no file may have.
+        assert!(!we_core::part_ok(0, we_core::MAX_PARTS + 1, 10));
+        // No part at all.
+        assert!(!we_core::part_ok(0, 0, 10));
+        // A part bigger than a part may be.
+        assert!(!we_core::part_ok(0, 1, we_core::PART_SIZE + 1));
+        // A part of a file may be.
+        assert!(we_core::part_ok(0, 1, we_core::PART_SIZE));
+        assert!(we_core::part_ok(
+            we_core::MAX_PARTS - 1,
+            we_core::MAX_PARTS,
+            1
+        ));
+    }
+
+    #[test]
+    fn a_huge_index_does_not_make_a_huge_file() {
+        let mut parts = we_core::Parts::new(3);
+        // The index is outside the count of the file: it is refused.
+        assert_eq!(parts.put(1_000_000_000, 3, b"x"), Err("index"));
+        // The count of the file is not the one of the header.
+        assert_eq!(parts.put(0, 4, b"x"), Err("count"));
+        // Nothing was kept.
+        assert!(parts.take().is_none());
+    }
+
+    #[test]
+    fn a_file_is_put_together_from_its_parts() {
+        let mut parts = we_core::Parts::new(2);
+        assert_eq!(parts.put(0, 2, b"ab"), Ok(false));
+        assert_eq!(parts.put(1, 2, b"cd"), Ok(true));
+        assert_eq!(parts.take(), Some(b"abcd".to_vec()));
+        // The file is gone: it is not there twice.
+        assert_eq!(parts.take(), None);
+    }
+
+    #[test]
+    fn a_file_does_not_grow_past_its_size() {
+        let mut parts = we_core::Parts::new(we_core::MAX_PARTS);
+        let part = vec![0; we_core::PART_SIZE];
+        let mut refused = false;
+        for index in 0..we_core::MAX_PARTS {
+            if parts.put(index, we_core::MAX_PARTS, &part).is_err() {
+                refused = true;
+                break;
+            }
+        }
+        assert!(refused, "the file stops at its size");
+        assert!(parts.take().is_none());
+    }
+
+    #[test]
+    fn the_client_does_only_what_the_player_asked_for() {
+        let mut allowed = we_core::Allowed::default();
+        // Nothing is allowed before the player asks.
+        assert!(!allowed.allows("read", "house"));
+        assert!(!allowed.allows("list", ""));
+        // The player asks for a file.
+        allowed.ask("read", "house");
+        assert!(allowed.allows("read", "house"));
+        // The server may not ask for another one.
+        assert!(!allowed.allows("read", "castle"));
+        // The allowance is spent once.
+        assert!(allowed.take("read", "house"));
+        assert!(!allowed.take("read", "house"));
+    }
+
+    #[test]
+    fn the_write_of_a_file_is_allowed_until_it_is_written() {
+        let mut allowed = we_core::Allowed::default();
+        allowed.ask("write", "house");
+        // The parts of the file come one by one: the write is allowed
+        // until the file is there.
+        assert!(allowed.allows("write", "house"));
+        // The file is written: the server may not write it again.
+        allowed.clear("write", "house");
+        assert!(!allowed.allows("write", "house"));
+        // Another file is not allowed either.
+        assert!(!allowed.allows("write", "castle"));
+    }
+
+    #[test]
+    fn the_listing_of_the_files_is_allowed_once() {
+        let mut allowed = we_core::Allowed::default();
+        allowed.ask("list", "");
+        assert!(allowed.allows("list", ""));
+        assert!(allowed.take("list", ""));
+        assert!(!allowed.allows("list", ""));
+    }
 }

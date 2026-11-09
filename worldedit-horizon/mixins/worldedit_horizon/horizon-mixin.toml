@@ -1,6 +1,6 @@
 [mod]
 id = "worldedit_horizon"
-version = "1.5.1"
+version = "1.5.2"
 priority = 100
 
 # The commit of horizon main it was tested on. It uses only the native hook
@@ -125,6 +125,38 @@ bindings = [
   { name = "pressed", ty = "bool", value = "pressed" },
   { name = "_modifiers", ty = "u32", value = "modifiers" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+# The player's own command, as the client sees it before the server does:
+# it is what allows the server to ask for the player's files.
+[[injection]]
+id = "client-command"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_command"
+helper = "client_command.rs"
+bindings = [
+  { name = "command", ty = "&str", value = "command" },
+]
+
+# The client made a level: another server, another dimension.
+[[injection]]
+id = "client-level-load"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_client_level_load"
+helper = "client_level_load.rs"
+bindings = [
+  { name = "_dimension", ty = "&str", value = "dimension" },
+]
+
+# The client dropped its level: it left the server, or it changed the
+# dimension.
+[[injection]]
+id = "client-level-unload"
+kind = "HEAD"
+target = "horizon_client::game::native_hooks::Game<'_>::native_client_level_unload"
+helper = "client_level_unload.rs"
+bindings = [
+  { name = "_dimension", ty = "&str", value = "dimension" },
 ]
 
 [[injection]]

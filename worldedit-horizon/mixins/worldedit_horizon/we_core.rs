@@ -2405,6 +2405,169 @@ pub fn schematic_name(name: &str) -> Result<String, String> {
     Ok(name.to_owned())
 }
 
+/// The most parts a schematic file may have: the file is at most
+/// `MAX_FILE_BYTES` and every part carries `PART_SIZE` bytes.
+pub const MAX_PARTS: usize = 4096;
+/// The most bytes a schematic file may have: a build of the largest
+/// selection is far below it.
+pub const MAX_FILE_BYTES: usize = 32 * 1024 * 1024;
+
+/// Whether a part of a file may be: the index is inside the count, the
+/// count is inside the limits and the part is not bigger than a part may
+/// be. A header of a hostile size is refused here, before anything is
+/// allocated for it.
+pub fn part_ok(index: usize, count: usize, bytes: usize) -> bool {
+    count > 0 && count <= MAX_PARTS && index < count && bytes <= PART_SIZE
+}
+
+/// What the player asked for with `/we schematic ...`, and what the client
+/// may therefore do for the server: the schematics are the player's own
+/// files, so the client does for a server only what the player asked for,
+/// and only while the connection that asked is the one the player is on.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Allowed {
+    /// The file the server may write: the player asked to save it.
+    save: Option<String>,
+    /// The file the client may send: the player asked to load it.
+    load: Option<String>,
+    /// The file the client may delete: the player asked to delete it.
+    delete: Option<String>,
+    /// Whether the client may tell the server the files it has.
+    list: bool,
+}
+
+impl Allowed {
+    /// The player's own command: `save` and `load` are the protocol's
+    /// `write` and `read`, the two ways a file travels.
+    pub fn ask(&mut self, op: &str, name: &str) {
+        match op {
+            "write" => self.save = Some(name.to_owned()),
+            "read" => self.load = Some(name.to_owned()),
+            "delete" => self.delete = Some(name.to_owned()),
+            "list" => self.list = true,
+            _ => {}
+        }
+    }
+
+    /// Whether the server may ask the client for this.
+    pub fn allows(&self, op: &str, name: &str) -> bool {
+        match op {
+            "write" => self.save.as_deref() == Some(name),
+            "read" => self.load.as_deref() == Some(name),
+            "delete" => self.delete.as_deref() == Some(name),
+            "list" => self.list,
+            _ => false,
+        }
+    }
+
+    /// Whether the server may ask the client for this, and whether the
+    /// allowance is spent: every one of them is used once, except the write
+    /// of a file, which lasts as long as the file does.
+    pub fn take(&mut self, op: &str, name: &str) -> bool {
+        if !self.allows(op, name) {
+            return false;
+        }
+        match op {
+            "write" => {}
+            "read" => self.load = None,
+            "delete" => self.delete = None,
+            "list" => self.list = false,
+            _ => {}
+        }
+        true
+    }
+
+    /// The allowance for this is over: the server may not do it again.
+    pub fn clear(&mut self, op: &str, name: &str) {
+        match op {
+            "write" => {
+                if self.save.as_deref() == Some(name) {
+                    self.save = None;
+                }
+            }
+            "read" => {
+                if self.load.as_deref() == Some(name) {
+                    self.load = None;
+                }
+            }
+            "delete" => {
+                if self.delete.as_deref() == Some(name) {
+                    self.delete = None;
+                }
+            }
+            "list" => self.list = false,
+            _ => {}
+        }
+    }
+
+    /// Whether nothing is allowed any more.
+    pub fn is_empty(&self) -> bool {
+        self.save.is_none() && self.load.is_none() && self.delete.is_none() && !self.list
+    }
+}
+
+/// The parts of a file, put together as they come: a file has at most
+/// `MAX_PARTS` parts and is at most `MAX_FILE_BYTES` big. A part of a
+/// hostile size is refused here, before anything is allocated for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Parts {
+    count: usize,
+    parts: Vec<Option<Vec<u8>>>,
+    got: usize,
+    bytes: usize,
+}
+
+impl Parts {
+    /// A file of `count` parts.
+    pub fn new(count: usize) -> Self {
+        Self {
+            count,
+            parts: Vec::new(),
+            got: 0,
+            bytes: 0,
+        }
+    }
+
+    /// A part of the file: whether the whole file is there. `Err` is why
+    /// the part does not fit: the count is not the one of the file, the
+    /// index is outside it, or the file would grow past its size.
+    pub fn put(&mut self, index: usize, count: usize, bytes: &[u8]) -> Result<bool, &'static str> {
+        if count != self.count {
+            return Err("count");
+        }
+        if !part_ok(index, count, bytes.len()) {
+            return Err("index");
+        }
+        if self.bytes + bytes.len() > MAX_FILE_BYTES {
+            return Err("size");
+        }
+        if self.parts.len() <= index {
+            self.parts.resize(index + 1, None);
+        }
+        if self.parts[index].is_none() {
+            self.parts[index] = Some(bytes.to_vec());
+            self.got += 1;
+            self.bytes += bytes.len();
+        }
+        Ok(self.got >= self.count)
+    }
+
+    /// The whole file, when every part of it is there.
+    pub fn take(&mut self) -> Option<Vec<u8>> {
+        if self.got < self.count {
+            return None;
+        }
+        let mut out = Vec::with_capacity(self.bytes);
+        for part in self.parts.iter_mut().filter_map(|part| part.take()) {
+            out.extend_from_slice(&part);
+        }
+        // The file is gone: it is not there twice.
+        self.got = 0;
+        self.bytes = 0;
+        Some(out)
+    }
+}
+
 /// A saved build: its blocks, relative to the lowest corner of the region it
 /// was taken from.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

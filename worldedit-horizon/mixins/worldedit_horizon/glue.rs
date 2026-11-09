@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "1.5.1";
+pub const VERSION: &str = "1.5.2";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
@@ -1291,16 +1291,12 @@ struct Outgoing {
     next: usize,
 }
 
-/// The parts of a file a player is sending, put together.
-struct Incoming {
-    count: usize,
-    parts: Vec<Option<Vec<u8>>>,
-    got: usize,
-}
-
 /// The files the server sends to the players, and the ones they send back.
 static SCHEMATICS_OUT: Mutex<Option<HashMap<u128, Outgoing>>> = Mutex::new(None);
-static SCHEMATICS_IN: Mutex<Option<HashMap<u128, Incoming>>> = Mutex::new(None);
+static SCHEMATICS_IN: Mutex<Option<HashMap<u128, we_core::Parts>>> = Mutex::new(None);
+/// The file the server asked each player to send: the client may only send
+/// this one back.
+static SCHEMATICS_READ: Mutex<Option<HashMap<u128, String>>> = Mutex::new(None);
 
 /// `/we schematic save|load|list|delete`: the build of the selection, kept
 /// in a file of the player's own folder. The client owns the files, so the
@@ -1321,21 +1317,21 @@ fn schematic(
                 we_core::Schematic::of(&reader, &c)
             };
             schematic_send_file(game, player.uuid, &name, build.encode());
-            Ok(format!("Saving the schematic `{name}`…"))
+            Ok(format!("Saving the schematic `{name}`вЂ¦"))
         }
         Some("load") => {
             let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
-            schematic_send(game, player.uuid, &we_core::message(&format!("read {name}"), &[]));
-            Ok(format!("Loading the schematic `{name}`…"))
+            schematic_ask(game, player.uuid, &name);
+            Ok(format!("Loading the schematic `{name}`вЂ¦"))
         }
         Some("list") => {
             schematic_send(game, player.uuid, &we_core::message("list", &[]));
-            Ok("Looking for the schematics…".to_owned())
+            Ok("Looking for the schematicsвЂ¦".to_owned())
         }
         Some("delete") => {
             let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
             schematic_send(game, player.uuid, &we_core::message(&format!("delete {name}"), &[]));
-            Ok(format!("Deleting the schematic `{name}`…"))
+            Ok(format!("Deleting the schematic `{name}`вЂ¦"))
         }
         _ => Err("Usage: /we schematic save|load|list|delete <name>".to_owned()),
     }
@@ -1345,6 +1341,28 @@ fn schematic(
 fn schematic_send(game: &mut Game<'_>, player: u128, data: &[u8]) {
     let host: &mut dyn crate::mod_api::Host = game;
     let _ = host.net_send_to_player(player, we_core::SCHEMATIC_CHANNEL, data);
+}
+
+/// Asks the client for a file, and keeps the name: the client may only
+/// send this file back.
+fn schematic_ask(game: &mut Game<'_>, player: u128, name: &str) {
+    {
+        let mut guard = SCHEMATICS_READ.lock().unwrap_or_else(|e| e.into_inner());
+        guard
+            .get_or_insert_with(HashMap::new)
+            .insert(player, name.to_owned());
+    }
+    schematic_send(game, player, &we_core::message(&format!("read {name}"), &[]));
+}
+
+/// Whether the client may send this file back: it is the one the server
+/// asked for.
+fn schematic_may_send(player: u128, name: &str) -> bool {
+    let mut guard = SCHEMATICS_READ.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(map) = guard.as_mut() else {
+        return false;
+    };
+    map.get(&player).is_some_and(|asked| asked == name)
 }
 
 /// Sends a schematic file to the player, in parts: the game takes at most
@@ -1400,10 +1418,25 @@ pub fn schematic_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
             let name = words.next().unwrap_or("").to_owned();
             let index = words.next().and_then(|n| n.parse().ok()).unwrap_or(0);
             let count = words.next().and_then(|n| n.parse().ok()).unwrap_or(0);
-            if !schematic_take_part(player, index, count, payload) {
-                // The rest of the file is on its way.
-                schematic_send(game, player, &we_core::message(&format!("more {name}"), &[]));
+            // The client may only send the file the server asked for.
+            if !schematic_may_send(player, &name) {
                 return;
+            }
+            match schematic_take_part(player, index, count, payload) {
+                Part::More => {
+                    // The rest of the file is on its way.
+                    schematic_send(game, player, &we_core::message(&format!("more {name}"), &[]));
+                    return;
+                }
+                Part::Refused => {
+                    tell(
+                        game,
+                        player,
+                        &format!("The file `{name}` the client sent does not fit."),
+                    );
+                    return;
+                }
+                Part::Whole => {}
             }
             let Some(data) = schematic_finished(player) else {
                 return;
@@ -1449,36 +1482,49 @@ pub fn schematic_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
     }
 }
 
-/// A part of the file the player sends; whether the whole file is there.
-fn schematic_take_part(player: u128, index: usize, count: usize, bytes: &[u8]) -> bool {
+/// A part of the file the player sends: what the server does with it.
+enum Part {
+    /// The file is not whole yet.
+    More,
+    /// The whole file is there.
+    Whole,
+    /// The part does not fit: the file goes, and the server is told.
+    Refused,
+}
+
+/// A part of the file the player sends.
+fn schematic_take_part(player: u128, index: usize, count: usize, bytes: &[u8]) -> Part {
     let mut guard = SCHEMATICS_IN.lock().unwrap_or_else(|e| e.into_inner());
     let map = guard.get_or_insert_with(HashMap::new);
-    let entry = map.entry(player).or_insert_with(|| Incoming {
-        count,
-        parts: Vec::new(),
-        got: 0,
-    });
-    entry.count = count;
-    if entry.parts.len() <= index {
-        entry.parts.resize(index + 1, None);
+    let result = {
+        let entry = map
+            .entry(player)
+            .or_insert_with(|| we_core::Parts::new(count));
+        entry.put(index, count, bytes)
+    };
+    match result {
+        Ok(true) => Part::Whole,
+        Ok(false) => Part::More,
+        Err(_) => {
+            // The parts do not fit: the file goes.
+            map.remove(&player);
+            Part::Refused
+        }
     }
-    if entry.parts[index].is_none() {
-        entry.parts[index] = Some(bytes.to_vec());
-        entry.got += 1;
-    }
-    entry.got >= count
 }
 
 /// The file the player sent, whole.
 fn schematic_finished(player: u128) -> Option<Vec<u8>> {
+    {
+        let mut guard = SCHEMATICS_READ.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(map) = guard.as_mut() {
+            map.remove(&player);
+        }
+    }
     let mut guard = SCHEMATICS_IN.lock().unwrap_or_else(|e| e.into_inner());
     let map = guard.get_or_insert_with(HashMap::new);
-    let entry = map.remove(&player)?;
-    let mut out = Vec::new();
-    for part in entry.parts.into_iter().flatten() {
-        out.extend_from_slice(&part);
-    }
-    Some(out)
+    let mut entry = map.remove(&player)?;
+    entry.take()
 }
 
 /// The file the player sent is a schematic: into their clipboard.
@@ -1514,6 +1560,10 @@ fn schematic_error(op: &str, name: &str, why: &str) -> String {
     match why {
         "not found" => format!("There is no schematic called `{name}`."),
         "broken" => format!("The file `{name}` is not a schematic."),
+        "too big" => format!("The file `{name}` is too big to be a schematic."),
+        "refused" => format!(
+            "The client did not allow the request for `{name}`: it does only what the player asked for."
+        ),
         _ => match op {
             "write" => format!("The schematic `{name}` cannot be written."),
             "delete" => format!("The schematic `{name}` cannot be deleted."),
