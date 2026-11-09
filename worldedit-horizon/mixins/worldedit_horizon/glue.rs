@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "1.5.0";
+pub const VERSION: &str = "1.5.1";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
@@ -36,6 +36,7 @@ fn creative(player: &NativeServerPlayer) -> bool {
 const CREATIVE_ONLY: &str = "WorldEdit works only in creative mode (/gamemode creative).";
 const NOT_OPERATOR: &str = "WorldEdit needs operator permission level 2 or more.";
 const NOT_ADMIN: &str = "/we limit needs operator permission level 4 or more.";
+const NOT_REGEN_ADMIN: &str = "/we regen needs operator permission level 4 or more.";
 
 /// Whether the player may edit: an operator (level 2 or more) in creative mode.
 fn may_edit(player: &NativeServerPlayer) -> bool {
@@ -304,7 +305,7 @@ pub fn commands(out: &mut Vec<NativeCommand>) {
     }
 }
 
-const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit level 4): every command is /we <command>, as /we set stone. \
+const HELP: &str = "WorldEdit (creative mode and operator level 2; /we limit and /we regen level 4): every command is /we <command>, as /we set stone. \
 wand | brush <shape> [sizes] <pattern> | brush smooth [radius] [iterations] (the ground around the block is smoothed, as in WorldEdit) | brush radius <n> | brush distance <n> (the brush works on the block you look at, and, where there is none, that far ahead) | brush at | brush erase at (off) | pos1 | pos2 | pos | hpos1 | hpos2 | sel (clear, or sel cube|sphere|cylinder|ellipsoid [sizes]) | grid on|off (the grid inside the selection, for you alone) | size | trim | distr | chunk | chunkinfo | listchunks | \
 expand/contract/shift <n> <dir> | outset/inset <n> | set <pattern> (0 = air) | replace [!]<from> <to> | overlay <pat> | naturalize | line <pat> | hollow | chunk | walls <pattern> | faces <pattern> | \
 count <blocks> | fill/fillr <pattern> <radius> [depth] | removeabove/removebelow [size] [height] | sphere/hsphere <pattern> <r> | cyl <pattern> <r> [h] | hcyl <pattern> <r> [h] | \
@@ -759,6 +760,9 @@ fn run(
             let n = edit.len();
             session.record(edit);
             Ok(format!("{n} blocks changed."))
+        }
+        "regen" if !we_core::permitted(player.permission, Some("regen")) => {
+            Err(NOT_REGEN_ADMIN.to_owned())
         }
         "regen" => {
             // The ground of the chunks around the player, as the level's own

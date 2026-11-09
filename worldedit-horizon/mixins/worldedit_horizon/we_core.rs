@@ -30,10 +30,17 @@ pub const LEVEL_EDIT: u8 = 2;
 /// player and a large one can freeze the server, so only an owner changes
 /// them.
 pub const LEVEL_LIMIT: u8 = 4;
+/// The operator level `/we regen` needs: it takes the ground of whole chunks
+/// away, so it belongs to the owner of the world, as `/we limit` does.
+pub const LEVEL_REGEN: u8 = 4;
 
 /// The operator level the `/we` subcommand `sub` needs.
 pub fn level_for(sub: &str) -> u8 {
-    if sub == "limit" { LEVEL_LIMIT } else { LEVEL_EDIT }
+    match sub {
+        "limit" => LEVEL_LIMIT,
+        "regen" => LEVEL_REGEN,
+        _ => LEVEL_EDIT,
+    }
 }
 
 /// Whether a player of operator level `permission` may run the `/we`
@@ -2667,6 +2674,11 @@ mod tests {
         // Only an owner changes the limits.
         assert!(permitted(4, Some("limit")));
         assert!(permitted(4, Some("replace")));
+        // Regenerating the ground takes whole chunks away: an owner only.
+        assert!(!permitted(2, Some("regen")));
+        assert!(!permitted(3, Some("regen")));
+        assert!(permitted(4, Some("regen")));
+        assert_eq!(level_for("regen"), LEVEL_REGEN);
     }
     use super::*;
 

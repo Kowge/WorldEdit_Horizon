@@ -9,7 +9,7 @@ launcher compiles it into the game. There is no sandbox, so read the source befo
 
 ## Use
 
-Creative mode **and** operator permission only: every `/we` command and the wand need operator level 2 or more (`ops.json`; single-player owner with cheats on), and `/we limit` (limits shared by all players) needs level 4. A creative non-operator is refused. Everything starts with `/we`; `/we help` lists the commands.
+Creative mode **and** operator permission only: every `/we` command and the wand need operator level 2 or more (`ops.json`; single-player owner with cheats on), while `/we limit` (limits shared by all players) and `/we regen` (it takes the ground of whole chunks away) need level 4. A creative non-operator is refused. Everything starts with `/we`; `/we help` lists the commands.
 
 Every command is under `/we`: `/we set stone`, `/we copy`, `/we undo`. The server cuts the slashes off a command line, so `//we set stone` runs the same command, but the game marks the double slash as an unknown name in the chat box — write it with one slash.
 
@@ -51,6 +51,8 @@ The brush belongs to the player alone: `/we brush` says which one is armed and `
 `/we regen [radius]` puts the ground back as the level's own generator made it. The chunk under the player — or the square of `radius` chunks around him, up to four — is made again by the generator of the level itself: the same seed, the same biomes, the same settings, so the landscape comes back as it was born. Every block that differs from the world is a write, so the ground returns and whatever was built on it goes away.
 
 It is not a copy of the world: the terrain comes from the generator, the only honest source of the original land. Chunks that are not loaded are left alone and counted in the message. The change is one edit in the history, so `/we undo` takes it back.
+
+It needs operator level 4, like `/we limit`: the command takes the ground of whole chunks away, so it belongs to the owner of the world.
 
 ## Schematics
 

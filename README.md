@@ -7,7 +7,7 @@
 
 **A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
 
-![version](https://img.shields.io/badge/version-1.5.0-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
+![version](https://img.shields.io/badge/version-1.5.1-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
 
 </div>
 
@@ -16,7 +16,7 @@
 ## ✨ Features
 
 - 🪓 **Wooden axe wand** — left click = pos 1, right click = pos 2. Outside creative it is a normal axe.
-- 🎨 **Creative only, operators only** — every command works only in `/gamemode creative` and only for operators (permission level 2); `/we limit` needs level 4.
+- 🎨 **Creative only, operators only** — every command works only in `/gamemode creative` and only for operators (permission level 2); `/we limit` and `/we regen` need level 4.
 - 📍 **Exact corners** — `/we pos1 10,64,-5` and `/we pos2 10 64 -5` set a corner by coordinates; `/we hpos1` and `/we hpos2` take the block you look at.
 - 📐 **Selection tools** — `/we trim` cuts the selection down to the blocks that are really there, `/we distr` counts what is inside.
 - 🕳️ **Digging** — `/we fill` and `/we fillr` fill the hole around you, `/we removeabove` and `/we removebelow` clear a column up or down.
@@ -29,7 +29,7 @@
 - 🏔 **Smoothing brush** — `/we brush smooth 2 4` smooths the ground around the block you click, the way WorldEdit 7.4.6 does: a spike comes down, a hole is filled, and the column keeps its texture.
 - 🗺 **Chunks** — `/we chunkinfo` tells what the chunk under you holds, `/we listchunks` lists the chunks the selection covers.
 - 🌊 **Terrain tools** — `drain`, `fixwater`, `fixlava`, `smooth`.
-- 🌱 **Regeneration** — `/we regen` puts the ground of the chunk you stand on back as the world made it: the level's own generator makes the landscape again, so your builds go and the original terrain comes back. `/we regen 1` does the nine chunks around you.
+- 🌱 **Regeneration** — `/we regen` puts the ground of the chunk you stand on back as the world made it: the level's own generator makes the landscape again, so your builds go and the original terrain comes back. `/we regen 1` does the nine chunks around you. It needs operator level 4 — the command takes whole chunks away.
 - 📋 **Clipboard** — copy, cut, paste, rotate, flip, stack, move.
 - 💾 **Schematics** — `/we schematic save <name>` writes the build of the selection into a file of your own folder; `/we schematic load` reads it back and `/we paste` puts it down in front of you. Options > Horizon Settings > Mods has a button that opens the folder.
 - ↩️ **Undo / redo** with configurable history. An edit keeps the dimension it was made in, so undoing it in another one is refused and the edit waits for you there.
@@ -72,7 +72,7 @@
 
 # 📖 Commands
 
-All commands start with `/we`. They work only in creative mode (`/gamemode creative`) and for operators (permission level 2). `/we limit` needs permission level 4.
+All commands start with `/we`. They work only in creative mode (`/gamemode creative`) and for operators (permission level 2). `/we limit` and `/we regen` need permission level 4.
 
 > Write it with one slash — `/we set stone`. The double slash (`//we set stone`) runs as well (the server cuts the slashes off), but the chat box marks it as an unknown command.
 
@@ -169,7 +169,7 @@ The ground is smoothed the way WorldEdit smooths it: the height of every column 
 | `/we fixwater` | Turn flowing water in the selection into source blocks |
 | `/we fixlava` | The same for lava |
 | `/we smooth [n]` | Smooth the terrain in the selection, n passes (1–50, default 1) |
-| `/we regen [radius]` | Put the ground of the chunks around you back as the world made it: the level's own generator makes the landscape again. The radius is in chunks (0 = the chunk under you, default 0) |
+| `/we regen [radius]` | Put the ground of the chunks around you back as the world made it: the level's own generator makes the landscape again. The radius is in chunks (0 = the chunk under you, default 0). Needs operator level 4 |
 | `/we count <blocks>` | Count blocks in the selection. A block without a state counts every state of it, `oak_log[axis=x]` only that one |
 | `/we fill <pattern> <radius> [depth]` | Fill the hole around you: each column down to the first block |
 | `/we fillr <pattern> <radius> [depth]` | The same, but the whole air of the ball |
