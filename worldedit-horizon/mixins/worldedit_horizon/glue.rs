@@ -1317,21 +1317,21 @@ fn schematic(
                 we_core::Schematic::of(&reader, &c)
             };
             schematic_send_file(game, player.uuid, &name, build.encode());
-            Ok(format!("Saving the schematic `{name}`вЂ¦"))
+            Ok(format!("Saving the schematic `{name}`…"))
         }
         Some("load") => {
             let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
             schematic_ask(game, player.uuid, &name);
-            Ok(format!("Loading the schematic `{name}`вЂ¦"))
+            Ok(format!("Loading the schematic `{name}`…"))
         }
         Some("list") => {
             schematic_send(game, player.uuid, &we_core::message("list", &[]));
-            Ok("Looking for the schematicsвЂ¦".to_owned())
+            Ok("Looking for the schematics…".to_owned())
         }
         Some("delete") => {
             let name = we_core::schematic_name(args.get(2).copied().unwrap_or(""))?;
             schematic_send(game, player.uuid, &we_core::message(&format!("delete {name}"), &[]));
-            Ok(format!("Deleting the schematic `{name}`вЂ¦"))
+            Ok(format!("Deleting the schematic `{name}`…"))
         }
         _ => Err("Usage: /we schematic save|load|list|delete <name>".to_owned()),
     }
