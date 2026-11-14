@@ -51,6 +51,9 @@ jobs:
           curl -sSL --retry 3 -o pinned/horizon.tar.gz \
             "https://codeload.github.com/horizon-rust/horizon/tar.gz/$HORIZON_REV"
           tar -xzf pinned/horizon.tar.gz -C pinned/source --strip-components=1
+          # The source has a few links (the docs), and the mixins tool takes
+          # none: the registry's own tool removes them the same way.
+          find pinned/source -type l -delete
 
       # The mixins of the revision the bundle pins.
       - name: The mixins of the pinned revision
