@@ -86,6 +86,11 @@ selection the server sent and the lines it is drawn with; `brush_client.rs`: the
 `compatibility.json` pins the Horizon commit the mod was
 tested on and the hook points version (`hooks`).
 
+The workflow **Pinned native build** (`.github/workflows/pinned-native.yml`) compiles the bundle into the game of that
+exact commit, with the mixins of that exact revision, and runs the tests there: it is the evidence a reviewer asks
+for, since the registry's own check does not execute a native mod and the compatibility run builds on the newest
+Nightly rather than on the pin.
+
 The id must be the same in `[mod] id`, the folder name `mixins/<id>/`, the packaged manifest and the
 id typed in the submit form at playhorizon.dev/mods/submit.
 

@@ -65,6 +65,15 @@ const MAX_GRID_PLANES: i32 = 4096;
 /// The most free sides of blocks the outline of a round shape may show: past
 /// that only its shadow is drawn, so the lines stay few.
 const MAX_FACES: usize = 20_000;
+/// The most columns of blocks a round shape may have before its blocks are
+/// not drawn at all: past that only the frame of its box is drawn, so the
+/// work of a shape of any size is the same little work.
+const MAX_COLUMNS: usize = 65_536;
+/// The most a radius of a round shape may be: the same limit the server
+/// puts on its own radii. A shape bigger than that is drawn as the limit,
+/// so the whole numbers of the tests stay small enough to be counted
+/// exactly.
+const MAX_RADIUS: i32 = 1024;
 
 /// Reads what the server sent. None when there is no selection or when the
 /// message is broken.
@@ -115,14 +124,7 @@ pub fn segments(selection: &Selection) -> Vec<Segment> {
             out.extend(outline(selection));
         }
         _ => {
-            let lo = selection.min;
-            // The frame stands around the blocks, so it ends one block
-            // further.
-            let hi = [
-                selection.max[0] + 1,
-                selection.max[1] + 1,
-                selection.max[2] + 1,
-            ];
+            let (lo, hi) = box_bounds(selection);
             // The grid first, the frame over it: the edges of the frame stay
             // bright where the grid crosses them.
             if selection.grid {
@@ -217,6 +219,28 @@ fn frame(out: &mut Vec<Segment>, lo: [i32; 3], hi: [i32; 3]) {
             );
         }
     }
+}
+
+/// The corners of the box the selection fills: the blocks it holds and
+/// the frame that stands around them.
+fn box_bounds(selection: &Selection) -> ([i32; 3], [i32; 3]) {
+    let lo = selection.min;
+    // The frame stands around the blocks, so it ends one block further.
+    let hi = [
+        selection.max[0].saturating_add(1),
+        selection.max[1].saturating_add(1),
+        selection.max[2].saturating_add(1),
+    ];
+    (lo, hi)
+}
+
+/// The frame of the box the selection fills: the twelve edges around its
+/// blocks. It stands for a shape too big to draw block by block.
+fn box_frame(selection: &Selection) -> Vec<Segment> {
+    let (lo, hi) = box_bounds(selection);
+    let mut out = Vec::with_capacity(12);
+    frame(&mut out, lo, hi);
+    out
 }
 
 /// The grid: the lines between the blocks, as Minecraft draws them. Every
@@ -337,6 +361,11 @@ fn point(axis: usize, at: i32, u: i32, v: i32) -> [i32; 3] {
 /// draws the blocks of a selection. Every line stands on the border of a
 /// block, so the outline is the blocks themselves.
 fn outline(selection: &Selection) -> Vec<Segment> {
+    if column_count(selection) > MAX_COLUMNS as i128 {
+        // Too many blocks to count: the frame of the box around the shape
+        // stands for it, so the work stays the same for any size.
+        return box_frame(selection);
+    }
     let columns = columns(selection);
     let faces = faces(&columns);
     if faces.len() > MAX_FACES {
@@ -368,24 +397,55 @@ fn outline(selection: &Selection) -> Vec<Segment> {
     out
 }
 
+/// The radii of a round shape: a ball and a tube have one radius, an
+/// ellipsoid has three. A radius past the limit is drawn as the limit, so
+/// the whole numbers of the tests stay small enough to be counted exactly.
+fn radii(selection: &Selection) -> [i32; 3] {
+    match selection.shape {
+        ELLIPSOID => [
+            selection.sizes[0].clamp(1, MAX_RADIUS),
+            selection.sizes[1].clamp(1, MAX_RADIUS),
+            selection.sizes[2].clamp(1, MAX_RADIUS),
+        ],
+        _ => {
+            let r = selection.sizes[0].clamp(1, MAX_RADIUS);
+            [r, r, r]
+        }
+    }
+}
+
+/// How many columns of blocks a round shape has: the square of its width.
+/// A ball and a tube are as wide as they are long, an ellipsoid as wide as
+/// it is long and as deep. It is counted before the blocks are, so a shape
+/// of any size is refused before it costs anything.
+fn column_count(selection: &Selection) -> i128 {
+    let radii = radii(selection);
+    let wide = 2 * radii[0] as i128 + 1;
+    if selection.shape == ELLIPSOID {
+        wide * (2 * radii[2] as i128 + 1)
+    } else {
+        wide * wide
+    }
+}
+
 /// The columns of blocks of a round shape: for every (x, z) the blocks of the
 /// shape between the lowest and the highest.
 fn columns(selection: &Selection) -> BTreeMap<(i32, i32), Column> {
     let center = selection.center;
     let mut out = BTreeMap::new();
     if selection.shape == CYLINDER {
-        let r = selection.sizes[0].max(1) as i64;
+        let r = selection.sizes[0].clamp(1, MAX_RADIUS);
         let h = selection.sizes[1].max(1);
-        for x in (center[0] - r as i32)..=(center[0] + r as i32) {
-            for z in (center[2] - r as i32)..=(center[2] + r as i32) {
-                let dx = (x - center[0]) as i64;
-                let dz = (z - center[2]) as i64;
-                if dx * dx + dz * dz <= r * r {
+        for x in (center[0].saturating_sub(r))..=(center[0].saturating_add(r)) {
+            for z in (center[2].saturating_sub(r))..=(center[2].saturating_add(r)) {
+                let dx = x as i128 - center[0] as i128;
+                let dz = z as i128 - center[2] as i128;
+                if dx * dx + dz * dz <= (r as i128) * (r as i128) {
                     out.insert(
                         (x, z),
                         Column {
                             low: center[1],
-                            high: center[1] + h - 1,
+                            high: center[1].saturating_add(h - 1),
                         },
                     );
                 }
@@ -394,18 +454,9 @@ fn columns(selection: &Selection) -> BTreeMap<(i32, i32), Column> {
         return out;
     }
     // A ball or an ellipsoid: the radius of each axis.
-    let radii = if selection.shape == ELLIPSOID {
-        [
-            selection.sizes[0].max(1),
-            selection.sizes[1].max(1),
-            selection.sizes[2].max(1),
-        ]
-    } else {
-        let r = selection.sizes[0].max(1);
-        [r, r, r]
-    };
-    for x in (center[0] - radii[0])..=(center[0] + radii[0]) {
-        for z in (center[2] - radii[2])..=(center[2] + radii[2]) {
+    let radii = radii(selection);
+    for x in (center[0].saturating_sub(radii[0]))..=(center[0].saturating_add(radii[0])) {
+        for z in (center[2].saturating_sub(radii[2]))..=(center[2].saturating_add(radii[2])) {
             if let Some(column) = column_of(selection, x, z, radii) {
                 out.insert((x, z), column);
             }
@@ -424,69 +475,92 @@ fn column_of(
 ) -> Option<Column> {
     let center = selection.center;
     if selection.shape == SPHERE {
-        let r = selection.sizes[0].max(1) as i64;
-        let dx = (x - center[0]) as i64;
-        let dz = (z - center[2]) as i64;
+        let r = selection.sizes[0].max(1) as i128;
+        let dx = x as i128 - center[0] as i128;
+        let dz = z as i128 - center[2] as i128;
         let rest = r * r - dx * dx - dz * dz;
         if rest < 0 {
             return None;
         }
         let dy = (rest as f64).sqrt().floor() as i32;
         return Some(Column {
-            low: center[1] - dy,
-            high: center[1] + dy,
+            low: center[1].saturating_sub(dy),
+            high: center[1].saturating_add(dy),
         });
     }
     // An ellipsoid: the same test as the server's, so the outline is of the
     // very blocks the server would change.
-    let dx = f64::from(x - center[0]) / f64::from(radii[0]);
-    let dz = f64::from(z - center[2]) / f64::from(radii[2]);
-    let rest = 1.0 - dx * dx - dz * dz;
-    if rest < 0.0 {
+    let at = |d: i32| [x, center[1].saturating_add(d), z];
+    if !inside_ellipsoid(center, radii, at(0)) {
+        // The middle of the column is not inside: there is no column here.
         return None;
     }
-    let mut dy = (f64::from(radii[1]) * rest.sqrt()).floor() as i32;
-    while dy > 0 && !inside(selection, [x, center[1] + dy, z]) {
+    // How high the column goes: an estimate first, then the exact test of
+    // the blocks at its ends.
+    let dx = (x as f64 - center[0] as f64) / radii[0] as f64;
+    let dz = (z as f64 - center[2] as f64) / radii[2] as f64;
+    let rest = 1.0 - dx * dx - dz * dz;
+    let mut dy = if rest <= 0.0 {
+        0
+    } else {
+        ((radii[1] as f64) * rest.sqrt()).floor() as i32
+    };
+    // The estimate may be one block too low or too high: the exact test
+    // says which blocks are there.
+    while dy > 0 && !inside_ellipsoid(center, radii, at(dy)) {
         dy -= 1;
     }
-    while !inside(selection, [x, center[1] + dy, z]) && dy < radii[1] {
+    while dy < radii[1] && inside_ellipsoid(center, radii, at(dy + 1)) {
         dy += 1;
     }
-    if !inside(selection, [x, center[1] + dy, z]) {
+    if !inside_ellipsoid(center, radii, at(dy)) {
         return None;
     }
     Some(Column {
-        low: center[1] - dy,
-        high: center[1] + dy,
+        low: center[1].saturating_sub(dy),
+        high: center[1].saturating_add(dy),
     })
+}
+
+/// Whether a block is inside an ellipsoid: the server's own test, so that
+/// the outline and the blocks the server changes are the same. The numbers
+/// are whole, so a block on the border is inside, as it is for the server.
+fn inside_ellipsoid(center: [i32; 3], radii: [i32; 3], p: [i32; 3]) -> bool {
+    let d = [
+        p[0] as i128 - center[0] as i128,
+        p[1] as i128 - center[1] as i128,
+        p[2] as i128 - center[2] as i128,
+    ];
+    let r = [
+        radii[0] as i128,
+        radii[1] as i128,
+        radii[2] as i128,
+    ];
+    let r2 = [r[0] * r[0], r[1] * r[1], r[2] * r[2]];
+    let left = d[0] * d[0] * r2[1] * r2[2]
+        + d[1] * d[1] * r2[0] * r2[2]
+        + d[2] * d[2] * r2[0] * r2[1];
+    left <= r2[0] * r2[1] * r2[2]
 }
 
 /// Whether a block is inside a round shape: the server's own test, so that
 /// the outline and the blocks the server changes are the same.
 fn inside(selection: &Selection, p: [i32; 3]) -> bool {
     let center = selection.center;
-    let d = [p[0] - center[0], p[1] - center[1], p[2] - center[2]];
+    let d = [
+        p[0] as i128 - center[0] as i128,
+        p[1] as i128 - center[1] as i128,
+        p[2] as i128 - center[2] as i128,
+    ];
     match selection.shape {
         SPHERE => {
-            let r = selection.sizes[0].max(1) as i64;
-            (d[0] as i64) * (d[0] as i64) + (d[1] as i64) * (d[1] as i64)
-                + (d[2] as i64) * (d[2] as i64)
-                <= r * r
+            let r = selection.sizes[0].max(1) as i128;
+            d[0] * d[0] + d[1] * d[1] + d[2] * d[2] <= r * r
         }
-        ELLIPSOID => {
-            let mut sum = 0.0f64;
-            for i in 0..3 {
-                let r = selection.sizes[i].max(1) as f64;
-                let k = f64::from(d[i]) / r;
-                sum += k * k;
-            }
-            sum <= 1.0
-        }
+        ELLIPSOID => inside_ellipsoid(center, radii(selection), p),
         _ => {
-            let r = selection.sizes[0].max(1) as i64;
-            let dx = d[0] as i64;
-            let dz = d[2] as i64;
-            dx * dx + dz * dz <= r * r
+            let r = selection.sizes[0].max(1) as i128;
+            d[0] * d[0] + d[2] * d[2] <= r * r
                 && p[1] >= selection.min[1]
                 && p[1] <= selection.max[1]
         }
@@ -685,26 +759,30 @@ fn staircase(
 ) {
     let mut previous: Option<(i32, i32, i32)> = None;
     for (&i, &(low, high)) in ranges {
-        // The top and the bottom of this slice.
-        border(out, axis, at, i, high, i + 1, high);
+        // The top and the bottom of this slice. The lines stand on the
+        // borders of the blocks, so the top is one block above the highest
+        // one and the bottom is at the lowest one.
+        let top = high.saturating_add(1);
+        border(out, axis, at, i, top, i + 1, top);
         border(out, axis, at, i, low, i + 1, low);
         match previous {
             None => {
                 // The first slice: its side.
-                border(out, axis, at, i, low, i, high);
+                border(out, axis, at, i, low, i, top);
             }
             Some((previous_index, previous_low, previous_high)) => {
                 // The step to this slice.
                 let _ = previous_index;
                 if previous_high != high {
+                    let previous_top = previous_high.saturating_add(1);
                     border(
                         out,
                         axis,
                         at,
                         i,
-                        previous_high.min(high),
+                        previous_top.min(top),
                         i,
-                        previous_high.max(high),
+                        previous_top.max(top),
                     );
                 }
                 if previous_low != low {
@@ -724,7 +802,15 @@ fn staircase(
     }
     if let Some((i, low, high)) = previous {
         // The last slice: its side.
-        border(out, axis, at, i + 1, low, i + 1, high);
+        border(
+            out,
+            axis,
+            at,
+            i + 1,
+            low,
+            i + 1,
+            high.saturating_add(1),
+        );
     }
 }
 
@@ -1023,5 +1109,151 @@ mod tests {
         assert_eq!(parse(&[1]), None);
         assert_eq!(parse(&[1, 0, 200, 1, 2]), None);
         assert_eq!(parse(&[2, 0, 0]), None);
+    }
+
+    /// Whether a line stands between two places, in any order.
+    fn has_edge(lines: &[Segment], a: [f64; 3], b: [f64; 3]) -> bool {
+        lines
+            .iter()
+            .any(|l| (l.start == a && l.end == b) || (l.start == b && l.end == a))
+    }
+
+    #[test]
+    fn a_huge_ball_gets_the_frame_of_its_box_instead_of_its_blocks() {
+        let mut s = selection();
+        s.shape = SPHERE;
+        s.center = [0, 64, 0];
+        s.sizes = [100_000, 0, 0];
+        s.min = [-100_000, -99_936, -100_000];
+        s.max = [100_000, 200_000, 100_000];
+        let lines = segments(&s);
+        // Too many blocks to count: the frame of the box around the shape
+        // stands for it, so the work stays the same for any size.
+        assert!(lines.len() <= 64, "{} lines", lines.len());
+        assert_eq!(lines.iter().filter(|l| l.color == FRAME).count(), 12);
+    }
+
+    #[test]
+    fn a_ball_of_ten_blocks_is_still_drawn_as_its_blocks() {
+        let mut s = selection();
+        s.shape = SPHERE;
+        s.center = [0, 64, 0];
+        s.sizes = [10, 0, 0];
+        let lines = segments(&s);
+        // The blocks of the ball, one square at a time.
+        assert!(lines.len() > 1000, "{} lines", lines.len());
+        assert!(on_the_grid(&lines), "the lines stand on the blocks");
+        // The outline stands around the ball: the blocks are from -10 to 10
+        // and the border is one block further.
+        let mut near = [f64::MAX; 3];
+        let mut far = [f64::MIN; 3];
+        for l in &lines {
+            for axis in 0..3 {
+                near[axis] = near[axis].min(l.start[axis]).min(l.end[axis]);
+                far[axis] = far[axis].max(l.start[axis]).max(l.end[axis]);
+            }
+        }
+        assert!(near[0] <= -10.0 && far[0] >= 11.0, "{near:?} {far:?}");
+        assert!(near[1] <= 54.0 && far[1] >= 75.0, "{near:?} {far:?}");
+    }
+
+    #[test]
+    fn an_ellipsoid_reaches_the_blocks_on_its_border() {
+        let mut s = selection();
+        s.shape = ELLIPSOID;
+        s.center = [0, 0, 0];
+        s.sizes = [5, 5, 5];
+        let columns = columns(&s);
+        // The column at x = 4 holds the border of the shape: the server
+        // counts the block at y = 3 as inside, so the outline holds it too.
+        let column = columns.get(&(4, 0)).expect("the column at x = 4");
+        assert_eq!(column.high, 3, "the block at [4,3,0] is inside");
+        assert_eq!(column.low, -3, "the block at [4,-3,0] is inside");
+        // And the outline draws the borders of those very blocks.
+        let lines = segments(&s);
+        assert!(
+            has_edge(&lines, [4.0, 4.0, 0.0], [5.0, 4.0, 0.0]),
+            "the top of the block at [4,3,0]"
+        );
+        assert!(
+            has_edge(&lines, [4.0, -3.0, 0.0], [5.0, -3.0, 0.0]),
+            "the bottom of the block at [4,-3,0]"
+        );
+    }
+
+    #[test]
+    fn a_block_outside_an_ellipsoid_is_not_inside() {
+        let mut s = selection();
+        s.shape = ELLIPSOID;
+        s.center = [0, 0, 0];
+        s.sizes = [5, 5, 5];
+        // On the border of the shape: inside.
+        assert!(inside(&s, [4, 3, 0]), "the border of the shape is inside");
+        // Clearly outside: not inside.
+        assert!(!inside(&s, [4, 4, 0]), "the corner is outside");
+        assert!(!inside(&s, [6, 0, 0]), "the far side is outside");
+    }
+
+    #[test]
+    fn the_shadow_of_a_shape_stands_on_the_borders_of_its_blocks() {
+        // One block: the shadow of it is the three sides of its box.
+        let mut s = selection();
+        s.shape = SPHERE;
+        s.center = [0, 0, 0];
+        s.sizes = [1, 0, 0];
+        let mut columns = BTreeMap::new();
+        columns.insert((0, 0), Column { low: 0, high: 0 });
+        let lines = shadow(&s, &columns);
+        // The top of a slice is one block above its highest block: the
+        // border of the block above it.
+        assert!(
+            has_edge(&lines, [0.0, 0.0, 1.0], [1.0, 0.0, 1.0]),
+            "the top of the slice"
+        );
+        // The bottom of it is at its lowest block.
+        assert!(
+            has_edge(&lines, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+            "the bottom of the slice"
+        );
+        // And the side of the slice runs from the bottom to the top.
+        assert!(
+            has_edge(&lines, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+            "the side of the slice"
+        );
+        // The top and the bottom are lines of their own: a slice of one
+        // block has a top and a bottom, not one line.
+        assert_eq!(lines.len(), 12, "three sections of four lines");
+    }
+
+    #[test]
+    fn the_steps_of_a_shadow_stand_on_the_borders_of_its_blocks() {
+        // Two slices: the first one is three blocks high, the second one is
+        // a single block.
+        let mut ranges = BTreeMap::new();
+        ranges.insert(0, (0, 2));
+        ranges.insert(1, (0, 0));
+        let mut lines = Vec::new();
+        staircase(&mut lines, 1, 0, &ranges);
+        // The top of the first slice is one block above its highest block.
+        assert!(
+            has_edge(&lines, [0.0, 0.0, 3.0], [1.0, 0.0, 3.0]),
+            "the top of the first slice"
+        );
+        // The bottom of it is at its lowest block.
+        assert!(
+            has_edge(&lines, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+            "the bottom of the first slice"
+        );
+        // The top of the second slice is one block above its only block.
+        assert!(
+            has_edge(&lines, [1.0, 0.0, 1.0], [2.0, 0.0, 1.0]),
+            "the top of the second slice"
+        );
+        // The step between them runs from the top of the first slice to
+        // the top of the second one.
+        assert!(
+            has_edge(&lines, [1.0, 0.0, 1.0], [1.0, 0.0, 3.0]),
+            "the step between the slices"
+        );
     }
 }

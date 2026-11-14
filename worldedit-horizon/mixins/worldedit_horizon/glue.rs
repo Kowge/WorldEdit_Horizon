@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// The mod's id, name and version.
 pub const ID: &str = "worldedit";
 pub const NAME: &str = "WorldEdit";
-pub const VERSION: &str = "1.5.2";
+pub const VERSION: &str = "1.5.3";
 
 /// The item that selects: left click sets the first corner, right click the
 /// second.
@@ -845,6 +845,10 @@ fn run(
             let (Some(a), Some(b)) = (session.selection.pos1, session.selection.pos2) else {
                 return Err("Set //pos1 and //pos2 first.".to_owned());
             };
+            // The corners belong to the level where they were set.
+            if session.selection.dimension != dimension {
+                return Err("Your selection is in another dimension.".to_owned());
+            }
             let pattern = pattern(game, args.get(1).copied().unwrap_or_default())?;
             let positions = we_core::line(a, b)?;
             let edit = {
@@ -1114,6 +1118,7 @@ fn run(
         }
         "trim" => {
             let c = region(session, player)?;
+            we_core::check_limit(c.volume())?;
             let trimmed = {
                 let w = GameWorld {
                     game,
@@ -1751,6 +1756,7 @@ fn paint_brush(
             }
             // The ground around the block is smoothed, as in WorldEdit.
             let region = we_core::smooth_region(target, *radius);
+            we_core::check_limit(region.volume())?;
             let air = block_id(game, "air").unwrap_or(0);
             let edit = {
                 let mut w = GameWorld { game, dimension };

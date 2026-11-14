@@ -1,0 +1,99 @@
+name: Pinned native build
+
+# The bundle is compiled into the game of the commit it pins, with the
+# mixins it pins, and the rules of the mod are tested on their own. This is
+# the evidence a reviewer asks for: the registry's own check does not
+# execute a native mod, and the compatibility run builds on the newest
+# Nightly, not on the pin.
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "worldedit_horizon-*" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # The commit the bundle is built and tested against: the one
+  # worldedit-horizon/compatibility.json pins.
+  HORIZON_REV: 66f3981f522b24c250b21523a70080965b940424
+
+jobs:
+  pinned:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The toolchain the mixins need
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal
+          rustup default 1.99.1
+
+      - name: The libraries the game needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev pkg-config
+
+      - name: The rules of the mod on their own
+        run: |
+          set -o pipefail
+          cargo test --verbose --manifest-path worldedit-horizon/core-test/Cargo.toml 2>&1 | tee core-test.log
+
+      # The registry's own tool: it downloads the Horizon source of the
+      # commit, builds horizon-mixins at the mixins revision the bundle
+      # pins, applies the bundle and compiles the game with it.
+      - name: The tool of the registry
+        run: |
+          git clone --depth 1 https://github.com/horizon-rust/horizon-mods.git
+          mkdir -p horizon-mods/native
+          cp -r worldedit-horizon horizon-mods/native/worldedit-horizon
+
+      - name: The bundle compiled into the game of that commit
+        run: |
+          set -o pipefail
+          python3 horizon-mods/native/tools/native.py check worldedit-horizon --horizon "$HORIZON_REV" 2>&1 | tee native-check.log
+
+      - name: The game itself, built with the bundle
+        run: |
+          set -o pipefail
+          python3 horizon-mods/native/tools/native.py build worldedit-horizon --horizon "$HORIZON_REV" 2>&1 | tee native-build.log
+
+      - name: What was built
+        run: |
+          {
+            echo "## The pinned native build"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Horizon | \`$HORIZON_REV\` |"
+            echo "| Mixins | \`$(python3 -c "import json;print(json.load(open('worldedit-horizon/compatibility.json'))['horizon_mixins_revision'])")\` |"
+            echo "| Hooks | \`$(python3 -c "import json;print(json.load(open('worldedit-horizon/compatibility.json'))['hooks'])")\` |"
+            echo "| Game | \`$(python3 -c "import json;print(json.load(open('worldedit-horizon/compatibility.json'))['game'])")\` |"
+            echo
+            echo "The bundle of this commit was applied to the game of that exact Horizon commit, with the"
+            echo "mixins of that exact revision, and the game was compiled with it (\`-D warnings\`)."
+            echo
+            echo "### The tests of the rules"
+            echo
+            echo '```'
+            tail -n 30 core-test.log
+            echo '```'
+            echo
+            echo "### The build"
+            echo
+            echo '```'
+            tail -n 20 native-build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pinned-native-logs
+          path: |
+            core-test.log
+            native-check.log
+            native-build.log
+          if-no-files-found: error

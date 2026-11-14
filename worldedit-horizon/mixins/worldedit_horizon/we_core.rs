@@ -503,12 +503,24 @@ impl Region {
                 dx * dx + dz * dz <= r * r && p[1] >= self.min[1] && p[1] <= self.max[1]
             }
             Shape::Ellipsoid => {
-                let mut sum = 0.0f64;
-                for i in 0..3 {
-                    let d = (p[i] - self.center[i]) as f64 / self.sizes[i] as f64;
-                    sum += d * d;
-                }
-                sum <= 1.0
+                // The exact test in whole numbers: the blocks on the
+                // surface are in the shape. The client's own test is the
+                // same one, so its outline is of the very blocks the
+                // server changes.
+                let d = [
+                    (p[0] - self.center[0]) as i128,
+                    (p[1] - self.center[1]) as i128,
+                    (p[2] - self.center[2]) as i128,
+                ];
+                let r = [
+                    self.sizes[0].max(1) as i128,
+                    self.sizes[1].max(1) as i128,
+                    self.sizes[2].max(1) as i128,
+                ];
+                d[0] * d[0] * r[1] * r[1] * r[2] * r[2]
+                    + d[1] * d[1] * r[0] * r[0] * r[2] * r[2]
+                    + d[2] * d[2] * r[0] * r[0] * r[1] * r[1]
+                    <= r[0] * r[0] * r[1] * r[1] * r[2] * r[2]
             }
         }
     }
@@ -954,20 +966,117 @@ fn in_circle(radius: i32) -> impl Fn(i32, i32) -> bool {
     move |x, z| ((x * x + z * z) as f64) <= r * r
 }
 
+/// The square root of `n`, rounded down, in whole numbers.
+fn isqrt(n: i64) -> i64 {
+    if n <= 0 {
+        return 0;
+    }
+    let mut x = (n as f64).sqrt() as i64;
+    // The float is only close: the two loops make it exact.
+    while x > 0 && x * x > n {
+        x -= 1;
+    }
+    while (x + 1) * (x + 1) <= n {
+        x += 1;
+    }
+    x
+}
+
+/// The squared distance that decides the blocks of a ball: the ball holds
+/// the blocks whose squared distance is at most (radius + 0.5)², which for
+/// whole distances is radius² + radius.
+fn ball_limit(radius: i32) -> i64 {
+    let r = radius as i64;
+    r * r + r
+}
+
+/// The number of blocks of the ball of `radius` around a point: the very
+/// blocks `sphere` makes, counted without making them.
+fn ball_count(radius: i32) -> u64 {
+    let limit = ball_limit(radius);
+    let r = radius as i64;
+    let mut total = 0u64;
+    for dy in -r..=r {
+        let rest = limit - dy * dy;
+        if rest < 0 {
+            continue;
+        }
+        for dx in -r..=r {
+            let room = rest - dx * dx;
+            if room < 0 {
+                continue;
+            }
+            // The row holds the disc of the layer: twice the root of the
+            // room, plus the block in the middle.
+            total += 2 * isqrt(room) as u64 + 1;
+        }
+    }
+    total
+}
+
+/// The number of blocks of the shell of the ball of `radius`: the blocks
+/// of the ball with a free side.
+fn shell_count(radius: i32) -> u64 {
+    let limit = ball_limit(radius);
+    let r = radius as i64;
+    let mut total = 0u64;
+    let mut inner = 0u64;
+    for dy in -r..=r {
+        let rest = limit - dy * dy;
+        if rest < 0 {
+            continue;
+        }
+        for dx in -r..=r {
+            let room = rest - dx * dx;
+            if room < 0 {
+                continue;
+            }
+            let half = isqrt(room);
+            total += 2 * half as u64 + 1;
+            // A block is in the middle of the ball when all six of its
+            // neighbours are in the ball too.
+            let side_x = limit - dy * dy - (dx.abs() + 1) * (dx.abs() + 1);
+            let side_y = limit - (dy.abs() + 1) * (dy.abs() + 1) - dx * dx;
+            if half == 0 || side_x < 0 || side_y < 0 {
+                continue;
+            }
+            let deep = (half - 1).min(isqrt(side_x)).min(isqrt(side_y));
+            inner += 2 * deep as u64 + 1;
+        }
+    }
+    total.saturating_sub(inner)
+}
+
 /// A ball around `center`; hollow keeps only its outer shell.
 pub fn sphere(center: Pos, radius: i32, hollow: bool) -> Result<Vec<Pos>, String> {
     if !(1..=max_radius()).contains(&radius) {
         return Err(format!("The radius is 1 to {}.", max_radius()));
     }
-    let r = radius as f64 + 0.5;
-    let inside = |x: i32, y: i32, z: i32| ((x * x + y * y + z * z) as f64) <= r * r;
+    // The blocks of the ball are counted before they are made: a ball too
+    // big for the limit is refused at once.
+    check_limit(if hollow {
+        shell_count(radius)
+    } else {
+        ball_count(radius)
+    })?;
+    let limit = ball_limit(radius);
+    let inside = |x: i32, y: i32, z: i32| {
+        (x as i64) * (x as i64) + (y as i64) * (y as i64) + (z as i64) * (z as i64) <= limit
+    };
     let mut out = Vec::new();
     for y in -radius..=radius {
+        // Only the disc of this layer is walked, not the whole cube.
+        let rest = limit - (y as i64) * (y as i64);
+        if rest < 0 {
+            continue;
+        }
         for x in -radius..=radius {
-            for z in -radius..=radius {
-                if !inside(x, y, z) {
-                    continue;
-                }
+            let room = rest - (x as i64) * (x as i64);
+            if room < 0 {
+                continue;
+            }
+            let half = isqrt(room) as i32;
+            for z in -half..=half {
                 let shell = !(inside(x + 1, y, z)
                     && inside(x - 1, y, z)
                     && inside(x, y + 1, z)
@@ -1877,20 +1986,27 @@ pub fn fill_hole<W: World>(
     if depth < 1 {
         return Err("The depth is at least 1.".to_owned());
     }
-    let r = radius as f64 + 0.5;
+    // The ball is the most the fill can touch: it is counted before it is
+    // made, so a ball too big for the limit is refused at once.
+    check_limit(ball_count(radius))?;
+    // The ball is only `radius` blocks deep: a deeper fill is the same.
+    let depth = depth.min(radius);
+    let limit = ball_limit(radius);
     let mut writes = Vec::new();
     if recursive {
         // The whole air of the ball, down to the bottom of the hole.
         for dy in -(depth - 1)..=0 {
-            let rest = r * r - (dy * dy) as f64;
-            if rest < 0.0 {
+            let rest = limit - (dy as i64) * (dy as i64);
+            if rest < 0 {
                 continue;
             }
             for dx in -radius..=radius {
-                for dz in -radius..=radius {
-                    if ((dx * dx + dz * dz) as f64) > rest {
-                        continue;
-                    }
+                let room = rest - (dx as i64) * (dx as i64);
+                if room < 0 {
+                    continue;
+                }
+                let half = isqrt(room) as i32;
+                for dz in -half..=half {
                     let p = add(center, [dx, dy, dz]);
                     if world.get(p) == air {
                         writes.push((p, pattern.pick(p)));
@@ -1900,9 +2016,11 @@ pub fn fill_hole<W: World>(
         }
     } else {
         // Each column, from the top down to the first block that is there.
+        let r = radius as f64 + 0.5;
         for dx in -radius..=radius {
             for dz in -radius..=radius {
-                let rest = r * r - (dx * dx + dz * dz) as f64;
+                let column = (dx as i64) * (dx as i64) + (dz as i64) * (dz as i64);
+                let rest = r * r - column as f64;
                 if rest < 0.0 {
                     continue;
                 }
@@ -1997,9 +2115,17 @@ pub fn overlay_writes<W: World>(
     for x in region.min[0]..=region.max[0] {
         for z in region.min[2]..=region.max[2] {
             for y in (region.min[1]..=region.max[1]).rev() {
-                if world.get([x, y, z]) != air {
-                    let p = [x, y + 1, z];
-                    out.push((p, pattern.pick(p)));
+                let p = [x, y, z];
+                // Only the blocks of the selection are looked at: the box
+                // of a round shape holds blocks that are not in it. The
+                // scan goes on, for the top of the shape may be lower
+                // than the top of the box.
+                if !region.contains(p) {
+                    continue;
+                }
+                if world.get(p) != air {
+                    let at = [x, y + 1, z];
+                    out.push((at, pattern.pick(at)));
                     break;
                 }
             }
@@ -2022,6 +2148,11 @@ pub fn naturalize_writes<W: World>(
             let mut depth = 0;
             for y in (region.min[1]..=region.max[1]).rev() {
                 let p = [x, y, z];
+                // Only the blocks of the selection are changed, and only
+                // they are counted for the depth.
+                if !region.contains(p) {
+                    continue;
+                }
                 if world.get(p) == air {
                     if depth > 0 {
                         break;
@@ -3131,13 +3262,23 @@ mod tests {
         assert!(!shell.contains(&[0, 0, 0]));
         assert!(shell.len() < ball.len());
         assert!(sphere([0, 0, 0], 0, false).is_err());
-        assert!(sphere([0, 0, 0], MAX_RADIUS + 1, false).is_err());
+        assert!(sphere([0, 0, 0], max_radius() + 1, false).is_err());
         let can = cylinder([0, 10, 0], 2, 4, false).unwrap();
         assert_eq!(can.len(), 21 * 4);
         let pipe = cylinder([0, 10, 0], 3, 4, true).unwrap();
         assert!(!pipe.contains(&[0, 11, 0]));
         assert!(pipe.contains(&[0, 10, 0]) && pipe.contains(&[0, 13, 0]));
         assert!(cylinder([0, 0, 0], 2, 0, false).is_err());
+    }
+
+    #[test]
+    fn the_ball_is_counted_before_it_is_made() {
+        for radius in 1..=12 {
+            let ball = sphere([0, 0, 0], radius, false).unwrap();
+            assert_eq!(ball.len() as u64, ball_count(radius), "radius {radius}");
+            let shell = sphere([0, 0, 0], radius, true).unwrap();
+            assert_eq!(shell.len() as u64, shell_count(radius), "radius {radius}");
+        }
     }
 
     #[test]
@@ -3157,7 +3298,7 @@ mod tests {
         }
         assert!(hollow_cylinder([0, 0, 0], 0, 1).is_err());
         assert!(hollow_cylinder([0, 0, 0], 2, 0).is_err());
-        assert!(hollow_cylinder([0, 0, 0], MAX_RADIUS + 1, 1).is_err());
+        assert!(hollow_cylinder([0, 0, 0], max_radius() + 1, 1).is_err());
     }
 
     #[test]
@@ -3747,7 +3888,7 @@ mod tests {
         let one = b.with_radius(0).unwrap();
         assert_eq!(one.positions([1, 2, 3]).unwrap(), vec![[1, 2, 3]]);
         // A radius outside the limit is refused.
-        assert!(b.with_radius(1000).is_err());
+        assert!(b.with_radius(max_radius() + 1).is_err());
     }
 
     #[test]
@@ -3791,7 +3932,7 @@ mod tests {
         assert!(set_limit("distance", Some(300)).is_err());
         assert!(set_limit("distance", Some(0)).is_err());
         // The old limit comes back.
-        set_limit("reset", None).unwrap();
+        set_limit("distance", Some(MAX_DISTANCE as i64)).unwrap();
         assert_eq!(max_distance(), MAX_DISTANCE);
     }
 

@@ -7,7 +7,7 @@
 
 **A WorldEdit-style building toolkit for the [Horizon](https://playhorizon.dev) Minecraft client — native mod (`.hnmod`)**
 
-![version](https://img.shields.io/badge/version-1.5.2-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
+![version](https://img.shields.io/badge/version-1.5.3-blue) ![game](https://img.shields.io/badge/Horizon_Minecraft-26.3-green) ![hooks](https://img.shields.io/badge/native%20hooks-v58-lightgrey) ![mode](https://img.shields.io/badge/works%20in-creative-orange) ![ops](https://img.shields.io/badge/operator%20level%202%2B-orange)
 
 </div>
 
@@ -282,6 +282,23 @@ python3 worldedit-horizon/tools/package.py
 ```
 
 Every push runs the tests and builds the package; every release adds the package and its provenance to the release.
+
+### 🔒 The pinned build
+
+The bundle is compiled into the game of the commit it pins, and the pins are in `worldedit-horizon/compatibility.json` and in the `horizon-native.json` of the package:
+
+| | |
+|---|---|
+| Horizon | `66f3981f522b24c250b21523a70080965b940424` |
+| Mixins | `5a64af938ec86b00d53d16a408aabc0038fb3e57` |
+| Native hooks | 58 |
+| Game | 26.3 |
+
+The workflow [Pinned native build](https://github.com/Kowge/WorldEdit_Horizon/actions/workflows/pinned-native.yml) compiles this bundle into the game of that exact Horizon commit, with the mixins of that exact revision, and runs the tests there. It uses the registry's own tool (`horizon-mods/native/tools/native.py`), the same one the registry's check uses: the source of the commit is downloaded, `horizon-mixins` is built at the revision the bundle pins, the bundle is applied to the game and the game is compiled with it (`-D warnings`).
+
+The launcher builds the same way: it compiles a bundle on the commit it pins, so a build of this bundle is a build of that commit.
+
+What this proves: the bundle applies to that Horizon and to those mixins, and the game compiles with the injected code. What it does not prove: the runtime behaviour of the mod in a running game — the registry's own check says the same, the native source of a mod is not executed by the registry, so it is compiled and tested against the exact pins before the review.
 
 ## 📄 License
 
