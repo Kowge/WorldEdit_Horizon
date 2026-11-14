@@ -42,24 +42,42 @@ jobs:
           set -o pipefail
           cargo test --verbose --manifest-path worldedit-horizon/core-test/Cargo.toml 2>&1 | tee core-test.log
 
-      # The registry's own tool: it downloads the Horizon source of the
-      # commit, builds horizon-mixins at the mixins revision the bundle
-      # pins, applies the bundle and compiles the game with it.
-      - name: The tool of the registry
+      # The source of the pinned commit, the way the registry's own tool
+      # takes it: the archive of the commit, never a checkout.
+      - name: The source of the pinned commit
         run: |
-          git clone --depth 1 https://github.com/horizon-rust/horizon-mods.git
-          mkdir -p horizon-mods/native
-          cp -r worldedit-horizon horizon-mods/native/worldedit-horizon
+          set -euo pipefail
+          mkdir -p pinned/source
+          curl -sSL --retry 3 -o pinned/horizon.tar.gz \
+            "https://codeload.github.com/horizon-rust/horizon/tar.gz/$HORIZON_REV"
+          tar -xzf pinned/horizon.tar.gz -C pinned/source --strip-components=1
 
-      - name: The bundle compiled into the game of that commit
+      # The mixins of the revision the bundle pins.
+      - name: The mixins of the pinned revision
+        run: |
+          set -euo pipefail
+          rev=$(python3 -c "import json;print(json.load(open('worldedit-horizon/compatibility.json'))['horizon_mixins_revision'])")
+          echo "MIXINS_REV=$rev" >> "$GITHUB_ENV"
+          cargo install --locked --quiet \
+            --git https://github.com/horizon-rust/horizon-mixins --rev "$rev" \
+            --root pinned/tool horizon-mixins-cli
+
+      # The bundle applied to that source, as the launcher applies it.
+      - name: The bundle applied to that source
+        run: |
+          set -euo pipefail
+          mkdir -p pinned/mods/worldedit_horizon
+          cp -r worldedit-horizon/mixins/worldedit_horizon/. pinned/mods/worldedit_horizon/
+          pinned/tool/bin/horizon-mixins apply \
+            --workspace pinned/source --mods pinned/mods --out pinned/stage
+
+      # The game, built with the bundle: the same build the launcher makes.
+      - name: The game built with the bundle
         run: |
           set -o pipefail
-          python3 horizon-mods/native/tools/native.py check worldedit-horizon --horizon "$HORIZON_REV" 2>&1 | tee native-check.log
-
-      - name: The game itself, built with the bundle
-        run: |
-          set -o pipefail
-          python3 horizon-mods/native/tools/native.py build worldedit-horizon --horizon "$HORIZON_REV" 2>&1 | tee native-build.log
+          cd pinned/stage
+          CARGO_TARGET_DIR="$GITHUB_WORKSPACE/pinned/target" \
+            cargo build --locked -p horizon-client --bin horizon-client --profile fast 2>&1 | tee "$GITHUB_WORKSPACE/native-build.log"
 
       - name: What was built
         run: |
@@ -69,12 +87,13 @@ jobs:
             echo "| | |"
             echo "|---|---|"
             echo "| Horizon | \`$HORIZON_REV\` |"
-            echo "| Mixins | \`$(python3 -c "import json;print(json.load(open('worldedit-horizon/compatibility.json'))['horizon_mixins_revision'])")\` |"
+            echo "| Mixins | \`$MIXINS_REV\` |"
             echo "| Hooks | \`$(python3 -c "import json;print(json.load(open('worldedit-horizon/compatibility.json'))['hooks'])")\` |"
             echo "| Game | \`$(python3 -c "import json;print(json.load(open('worldedit-horizon/compatibility.json'))['game'])")\` |"
             echo
             echo "The bundle of this commit was applied to the game of that exact Horizon commit, with the"
-            echo "mixins of that exact revision, and the game was compiled with it (\`-D warnings\`)."
+            echo "mixins of that exact revision, and the game was built with it — the same build the launcher"
+            echo "makes for a player."
             echo
             echo "### The tests of the rules"
             echo
@@ -94,6 +113,5 @@ jobs:
           name: pinned-native-logs
           path: |
             core-test.log
-            native-check.log
             native-build.log
           if-no-files-found: error
