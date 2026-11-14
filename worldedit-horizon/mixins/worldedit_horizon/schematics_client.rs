@@ -27,7 +27,7 @@ static ALLOWED: Mutex<Option<crate::game::we_core::Allowed>> = Mutex::new(None);
 
 /// The mod's own folder: the schematics live in it, and the button of the
 /// mod's page in Options > Mods opens it.
-pub fn dir(game: &crate::game::Game<'_>) -> PathBuf {
+pub(in crate::game) fn dir(game: &crate::game::Game<'_>) -> PathBuf {
     game.native_data_dir(crate::game::we_mods_ui::ID)
 }
 
@@ -109,7 +109,7 @@ fn refuse(game: &mut crate::game::Game<'_>, op: &str, name: &str) {
 }
 
 /// What the server asks of the client.
-pub fn from_server(game: &mut crate::game::Game<'_>, data: &[u8]) {
+pub(in crate::game) fn from_server(game: &mut crate::game::Game<'_>, data: &[u8]) {
     let Some((header, payload)) = crate::game::we_core::split_message(data) else {
         return;
     };

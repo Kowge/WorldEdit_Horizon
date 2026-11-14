@@ -28,7 +28,7 @@ pub fn settings(mod_id: &str, buttons: &mut Vec<String>) {
 }
 
 /// A button of the mod's page was pressed: the first one opens the folder.
-pub fn click(game: &mut crate::game::Game<'_>, mod_id: &str, button: usize) {
+pub(in crate::game) fn click(game: &mut crate::game::Game<'_>, mod_id: &str, button: usize) {
     if mod_id == ID && button == 0 {
         let dir = schematics_dir(game);
         let _ = std::fs::create_dir_all(&dir);

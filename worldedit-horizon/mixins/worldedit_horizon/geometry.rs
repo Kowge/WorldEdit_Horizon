@@ -43,6 +43,7 @@ pub struct Segment {
 }
 
 /// The shapes, as the server counts them.
+#[cfg(test)]
 pub const CUBE: u8 = 0;
 pub const SPHERE: u8 = 1;
 pub const CYLINDER: u8 = 2;
@@ -545,6 +546,7 @@ fn inside_ellipsoid(center: [i32; 3], radii: [i32; 3], p: [i32; 3]) -> bool {
 
 /// Whether a block is inside a round shape: the server's own test, so that
 /// the outline and the blocks the server changes are the same.
+#[cfg(test)]
 fn inside(selection: &Selection, p: [i32; 3]) -> bool {
     let center = selection.center;
     let d = [

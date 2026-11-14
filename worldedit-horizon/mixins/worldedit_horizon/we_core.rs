@@ -203,6 +203,8 @@ impl Cuboid {
         let s = self.size();
         s[0] as u64 * s[1] as u64 * s[2] as u64
     }
+    /// Only the tests use this one.
+    #[cfg(test)]
     pub fn contains(&self, p: Pos) -> bool {
         (0..3).all(|i| p[i] >= self.min[i] && p[i] <= self.max[i])
     }
@@ -219,6 +221,7 @@ impl Cuboid {
         out
     }
     /// The four vertical sides.
+    #[cfg(test)]
     pub fn walls(&self) -> Vec<Pos> {
         self.positions()
             .into_iter()
@@ -231,6 +234,7 @@ impl Cuboid {
             .collect()
     }
     /// The six sides.
+    #[cfg(test)]
     pub fn faces(&self) -> Vec<Pos> {
         self.positions()
             .into_iter()
@@ -246,6 +250,7 @@ impl Cuboid {
     }
     /// Grows the box by `amount` blocks towards `dir` (a negative amount
     /// shrinks that side).
+    #[cfg(test)]
     pub fn expand(&self, dir: Dir, amount: i32) -> Option<Cuboid> {
         let v = dir.vector();
         let axis = (0..3).find(|&i| v[i] != 0)?;
@@ -258,9 +263,11 @@ impl Cuboid {
         (c.min[axis] <= c.max[axis]).then_some(c)
     }
     /// Pulls the side facing `dir` in by `amount` blocks.
+    #[cfg(test)]
     pub fn contract(&self, dir: Dir, amount: i32) -> Option<Cuboid> {
         self.expand(dir, -amount)
     }
+    #[cfg(test)]
     pub fn shifted(&self, offset: Pos) -> Cuboid {
         Cuboid {
             min: add(self.min, offset),
@@ -701,6 +708,7 @@ impl Region {
         }
     }
     /// The box of the selection.
+    #[cfg(test)]
     pub fn cuboid(&self) -> Cuboid {
         Cuboid {
             min: self.min,
@@ -790,6 +798,7 @@ impl Selection {
             self.pos2 = Some(pos);
         }
     }
+    #[cfg(test)]
     pub fn cuboid(&self) -> Option<Cuboid> {
         Some(Cuboid::new(self.pos1?, self.pos2?))
     }
@@ -797,6 +806,7 @@ impl Selection {
     pub fn region(&self) -> Option<Region> {
         Some(Region::from_corners(self.pos1?, self.pos2?, self.shape))
     }
+    #[cfg(test)]
     pub fn set_cuboid(&mut self, c: Cuboid) {
         self.pos1 = Some(c.min);
         self.pos2 = Some(c.max);
@@ -1695,6 +1705,7 @@ impl Brush {
     }
 
     /// The shape and the sizes the brush paints with, when it paints a shape.
+    #[cfg(test)]
     pub fn shape(&self) -> Option<(Shape, [i32; 3])> {
         match &self.kind {
             BrushKind::Shape { shape, sizes, .. } => Some((*shape, *sizes)),
@@ -1703,6 +1714,7 @@ impl Brush {
     }
 
     /// The pattern as it was typed, for the messages.
+    #[cfg(test)]
     pub fn text(&self) -> Option<&str> {
         match &self.kind {
             BrushKind::Shape { text, .. } => Some(text),
@@ -2073,6 +2085,7 @@ pub fn remove_column<W: World>(
 
 impl Cuboid {
     /// Grown by `n` blocks on every side (a negative `n` shrinks it).
+    #[cfg(test)]
     pub fn grown(&self, n: i32) -> Option<Cuboid> {
         let c = Cuboid {
             min: [self.min[0] - n, self.min[1] - n, self.min[2] - n],
@@ -2431,13 +2444,16 @@ const SCHEMATIC_FORMAT: u32 = 1;
 const SCHEMATIC_HEADER: usize = 24;
 
 /// The mod's own folder in the world's folder.
+#[cfg(test)]
 pub const DATA_FOLDER: &str = "worldedit_horizon";
 /// The folder of the schematics in it.
+#[cfg(test)]
 pub const SCHEMATICS_FOLDER: &str = "schematics";
 /// The extension of a schematic file.
 pub const SCHEMATIC_EXTENSION: &str = "schematic";
 
 /// The folder the schematics live in, under the world's own folder.
+#[cfg(test)]
 pub fn schematic_dir(world: &std::path::Path) -> std::path::PathBuf {
     world.join(DATA_FOLDER).join(SCHEMATICS_FOLDER)
 }
@@ -2632,6 +2648,7 @@ impl Allowed {
     }
 
     /// Whether nothing is allowed any more.
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.save.is_none() && self.load.is_none() && self.delete.is_none() && !self.list
     }
@@ -2943,6 +2960,7 @@ impl Sessions {
     pub fn get(&mut self, uuid: u128) -> &mut Session {
         self.by_player.entry(uuid).or_default()
     }
+    #[cfg(test)]
     pub fn forget(&mut self, uuid: u128) {
         self.by_player.remove(&uuid);
     }

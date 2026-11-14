@@ -314,7 +314,7 @@ clearclipboard | schematic save|load|list|delete <name> (the build of the select
 Patterns: stone, 50%stone,dirt, oak_log[axis=x]. Directions: north south east west up down.";
 
 /// A player's command, when it is WorldEdit's.
-pub fn perform(
+pub(in crate::game) fn perform(
     game: &mut Game<'_>,
     player: &NativeServerPlayer,
     command: &str,
@@ -1413,7 +1413,7 @@ fn schematic_send_parts(game: &mut Game<'_>, player: u128) {
 
 /// What the client says about the schematics: the parts of the file it
 /// sends, and the answers to the server's requests.
-pub fn schematic_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
+pub(in crate::game) fn schematic_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
     let Some((header, payload)) = we_core::split_message(data) else {
         return;
     };
@@ -1596,7 +1596,7 @@ fn wand_player(game: &Game<'_>) -> Option<NativeServerPlayer> {
 /// A click of the wand on the block at `pos`: sets corner `index`, tells the
 /// player over the hotbar, and says whether it was the wand's (the click
 /// then does nothing else).
-pub fn wand_click(game: &mut Game<'_>, index: u8, pos: [i32; 3]) -> bool {
+pub(in crate::game) fn wand_click(game: &mut Game<'_>, index: u8, pos: [i32; 3]) -> bool {
     let Some(player) = wand_player(game) else {
         return false;
     };
@@ -1614,7 +1614,7 @@ pub fn wand_click(game: &mut Game<'_>, index: u8, pos: [i32; 3]) -> bool {
 /// A click of the wand with a brush armed: it paints the brush on the block
 /// at `pos`. It says whether the click was the brush's, so that the block is
 /// not broken then.
-pub fn brush_click(game: &mut Game<'_>, pos: [i32; 3]) -> bool {
+pub(in crate::game) fn brush_click(game: &mut Game<'_>, pos: [i32; 3]) -> bool {
     let Some(player) = wand_player(game) else {
         return false;
     };
@@ -1675,7 +1675,7 @@ fn brush_erase(
 /// The brush along the line of sight: the player paints with the left click
 /// and erases with the right one. It works where there is no block too: the
 /// brush reaches as far as its distance.
-pub fn brush_stroke(game: &mut Game<'_>, player: &NativeServerPlayer, erase: bool) -> bool {
+pub(in crate::game) fn brush_stroke(game: &mut Game<'_>, player: &NativeServerPlayer, erase: bool) -> bool {
     if !may_edit(player) {
         return false;
     }
@@ -1713,7 +1713,7 @@ pub fn brush_stroke(game: &mut Game<'_>, player: &NativeServerPlayer, erase: boo
 
 /// A client says that the player clicked in the air: there is no block there,
 /// so the server paints along the line of sight.
-pub fn brush_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
+pub(in crate::game) fn brush_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
     let Some(erase) = we_core::parse_brush(data) else {
         return;
     };
@@ -1836,7 +1836,7 @@ fn set_corner(game: &mut Game<'_>, player: u128, dimension: &str, index: u8, pos
 /// A client tells the server that the wand was used on a block: the server
 /// owns the selection, so it sets the corner itself. A dedicated server
 /// never hears the click itself, only the client's message.
-pub fn wand_request(game: &mut Game<'_>, pos: [i32; 3]) {
+pub(in crate::game) fn wand_request(game: &mut Game<'_>, pos: [i32; 3]) {
     // Only the wand asks.
     let Some((item, _, _)) = game.native_held() else {
         return;
@@ -1850,7 +1850,7 @@ pub fn wand_request(game: &mut Game<'_>, pos: [i32; 3]) {
 
 /// The server got a wand's click from a client: it checks the player and
 /// sets the second corner.
-pub fn wand_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
+pub(in crate::game) fn wand_message(game: &mut Game<'_>, player: u128, data: &[u8]) {
     let Some(pos) = we_core::parse_wand(data) else {
         return;
     };

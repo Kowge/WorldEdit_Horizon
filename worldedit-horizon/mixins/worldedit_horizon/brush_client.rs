@@ -14,7 +14,7 @@ const REACH: f32 = 5.0;
 /// The left mouse button went down. When there is no block under the view,
 /// the server hears nothing of the click: the client tells it, and the brush
 /// paints along the line of sight.
-pub fn mouse_button_pre(
+pub(in crate::game) fn mouse_button_pre(
     game: &mut crate::game::Game<'_>,
     button: i32,
     pressed: bool,
