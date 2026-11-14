@@ -54,6 +54,9 @@ jobs:
           # The source has a few links (the docs), and the mixins tool takes
           # none: the registry's own tool removes them the same way.
           find pinned/source -type l -delete
+          # The stamp of the revision the tool reads, the way the registry's
+          # own tool writes it.
+          echo "$HORIZON_REV" > pinned/source/.horizon-revision
 
       # The mixins of the revision the bundle pins.
       - name: The mixins of the pinned revision
